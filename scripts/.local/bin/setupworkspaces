@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# i3 workspace setup using append_layout for reliable window placement
+#
+# Prerequisites:
+# - ~/.config/i3/config must include: include ~/.config/i3/workspace-assigns.conf
+# - Run: i3-msg reload (or restart i3) after first setup
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+TERMINAL="gnome-terminal"
+LAYOUT_DIR="$HOME/.config/i3/layouts"
+
+TERM_PATH_TOP_LEFT="$HOME/projects"
+TERM_PATH_TOP_RIGHT="$HOME/projects"
+TERM_PATH_BOTTOM_LEFT="$HOME/projects"
+TERM_PATH_BOTTOM_RIGHT="$HOME/projects"
+
+# =============================================================================
+# WORKSPACE SETUP FUNCTIONS
+# =============================================================================
+
+setup_terminal_grid() {
+    local ws="$1"
+
+    echo "  Workspace $ws: loading 2x2 layout..."
+    i3-msg "workspace $ws" >/dev/null
+    i3-msg "append_layout $LAYOUT_DIR/terminals-2x2.json" >/dev/null
+
+    # Launch 4 terminals - they get swallowed into layout placeholders
+    $TERMINAL --working-directory="$TERM_PATH_TOP_LEFT" &
+    $TERMINAL --working-directory="$TERM_PATH_TOP_RIGHT" &
+    $TERMINAL --working-directory="$TERM_PATH_BOTTOM_LEFT" &
+    $TERMINAL --working-directory="$TERM_PATH_BOTTOM_RIGHT" &
+
+    sleep 1
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+    # Check layout files exist
+    if [ ! -f "$LAYOUT_DIR/terminals-2x2.json" ]; then
+        echo "Error: Missing $LAYOUT_DIR/terminals-2x2.json"
+        exit 1
+    fi
+
+    echo "Launching main applications (assign rules handle placement)..."
+    echo "  Chromium -> workspace 1"
+    chromium &
+
+    echo "  VS Code -> workspace 2"
+    code &
+
+    echo "Setting up terminal workspaces..."
+    setup_terminal_grid 3
+    setup_terminal_grid 4
+
+    i3-msg "workspace 1" >/dev/null
+    echo "Done!"
+}
+
+main "$@"

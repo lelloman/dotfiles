@@ -1,0 +1,17 @@
+{
+    "layout": "splith",
+    "percent": 1,
+    "type": "con",
+    "nodes": [
+        {
+            "percent": 0.5,
+            "type": "con",
+            "swallows": [{ "class": "^Gnome-terminal$" }]
+        },
+        {
+            "percent": 0.5,
+            "type": "con",
+            "swallows": [{ "class": "^Gnome-terminal$" }]
+        }
+    ]
+}
