@@ -128,9 +128,9 @@ set $ws8 "8"
 set $ws9 "9"
 set $ws10 "10"
 
-# Cycle through workspaces
-bindsym $mod+Tab workspace next
-bindsym $mod+Shift+Tab workspace prev
+# Cycle through workspaces on current monitor
+bindsym $mod+Tab exec --no-startup-id ~/.config/i3/workspace-cycle.sh next
+bindsym $mod+Shift+Tab exec --no-startup-id ~/.config/i3/workspace-cycle.sh prev
 
 # switch to workspace
 bindsym $mod+1 workspace number $ws1
