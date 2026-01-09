@@ -13,10 +13,10 @@
 TERMINAL="gnome-terminal"
 LAYOUT_DIR="$HOME/.config/i3/layouts"
 
-TERM_PATH_TOP_LEFT="$HOME/projects"
-TERM_PATH_TOP_RIGHT="$HOME/projects"
-TERM_PATH_BOTTOM_LEFT="$HOME/projects"
-TERM_PATH_BOTTOM_RIGHT="$HOME/projects"
+TERM_PATH_TOP_LEFT="$HOME/lelloprojects"
+TERM_PATH_TOP_RIGHT="$HOME/lelloprojects"
+TERM_PATH_BOTTOM_LEFT="$HOME/lelloprojects"
+TERM_PATH_BOTTOM_RIGHT="$HOME/lelloprojects"
 
 # =============================================================================
 # WORKSPACE SETUP FUNCTIONS
@@ -56,8 +56,10 @@ main() {
     echo "  VS Code -> workspace 2"
     code &
 
-    echo "Setting up terminal workspaces..."
-    setup_terminal_grid 3
+    echo "Setting up terminal workspaces (31, 32, 33, 4)..."
+    setup_terminal_grid 31
+    setup_terminal_grid 32
+    setup_terminal_grid 33
     setup_terminal_grid 4
 
     i3-msg "workspace 1" >/dev/null
