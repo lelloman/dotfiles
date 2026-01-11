@@ -38,6 +38,20 @@ setup_terminal_grid() {
     sleep 1
 }
 
+setup_terminal_2col() {
+    local ws="$1"
+
+    echo "  Workspace $ws: loading 2-column layout..."
+    i3-msg "workspace $ws" >/dev/null
+    i3-msg "append_layout $LAYOUT_DIR/terminals-side-by-side.json" >/dev/null
+
+    # Launch 2 terminals - they get swallowed into layout placeholders
+    $TERMINAL --working-directory="$TERM_PATH_TOP_LEFT" &
+    $TERMINAL --working-directory="$TERM_PATH_BOTTOM_LEFT" &
+
+    sleep 1
+}
+
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -56,11 +70,16 @@ main() {
     echo "  VS Code -> workspace 2"
     code &
 
-    echo "Setting up terminal workspaces (31, 32, 33, 4)..."
+    echo "Setting up terminal workspaces (31, 32, 33, 4, 5, 6)..."
     setup_terminal_grid 31
     setup_terminal_grid 32
     setup_terminal_grid 33
     setup_terminal_grid 4
+
+    echo "  Android Studio -> workspace 5"
+    /home/lelloman/android-studio/bin/studio &
+
+    setup_terminal_2col 6
 
     i3-msg "workspace 1" >/dev/null
     echo "Done!"
