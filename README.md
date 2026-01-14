@@ -16,7 +16,7 @@ Clone the repo and stow the packages you want:
 cd ~
 git clone <repo-url> dotfiles
 cd dotfiles
-stow bash i3 claude-pegleg  # or just the ones you need
+stow bash i3 pezzotticlaude  # or just the ones you need
 ```
 
 ## Packages
@@ -30,7 +30,7 @@ Shell configuration and aliases.
 **Contents:**
 - History settings (10000 lines)
 - Git log alias (`gitpl`)
-- `peglegclaude` alias for Claude Code with alternative API
+- `pezzotticlaude` alias for Claude Code with alternative API
 
 **Requires:** Your `~/.bashrc` must source `~/.bash_aliases`:
 ```bash
@@ -55,11 +55,11 @@ i3 window manager configuration.
 
 ---
 
-### claude-pegleg
+### pezzotticlaude
 
 Claude Code configuration for alternative API endpoint (e.g., MiniMax).
 
-**Stows to:** `~/.claude-pegleg/`
+**Stows to:** `~/.pezzotticlaude/`
 
 **Contents:**
 - `.claude.json` - theme and preferences
@@ -68,15 +68,15 @@ Claude Code configuration for alternative API endpoint (e.g., MiniMax).
 
 **Setup (first time):**
 ```bash
-cd ~/dotfiles/claude-pegleg/.claude-pegleg
+cd ~/dotfiles/pezzotticlaude/.pezzotticlaude
 cp settings.json.template settings.json
 # Edit settings.json and add your ANTHROPIC_AUTH_TOKEN
 ```
 
 **Usage:**
 ```bash
-peglegclaude  # runs Claude Code with alternative API
-claude        # runs normal Claude Code
+pezzotticlaude  # runs Claude Code with alternative API
+claude          # runs normal Claude Code
 ```
 
 ---

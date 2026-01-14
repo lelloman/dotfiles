@@ -1,11 +1,11 @@
 # Secrets - don't commit API keys
-claude-pegleg/.claude-pegleg/settings.json
+pezzotticlaude/.pezzotticlaude/settings.json
 
 # Claude Code runtime data
-claude-pegleg/.claude-pegleg/debug/
-claude-pegleg/.claude-pegleg/projects/
-claude-pegleg/.claude-pegleg/todos/
-claude-pegleg/.claude-pegleg/shell-snapshots/
+pezzotticlaude/.pezzotticlaude/debug/
+pezzotticlaude/.pezzotticlaude/projects/
+pezzotticlaude/.pezzotticlaude/todos/
+pezzotticlaude/.pezzotticlaude/shell-snapshots/
 
 # Editor swap/backup files
 *.swp
