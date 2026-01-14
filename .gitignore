@@ -1,0 +1,13 @@
+# Secrets - don't commit API keys
+claude-pegleg/.claude-pegleg/settings.json
+
+# Claude Code runtime data
+claude-pegleg/.claude-pegleg/debug/
+claude-pegleg/.claude-pegleg/projects/
+claude-pegleg/.claude-pegleg/todos/
+claude-pegleg/.claude-pegleg/shell-snapshots/
+
+# Editor swap/backup files
+*.swp
+*.swo
+*.backup
