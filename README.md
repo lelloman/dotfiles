@@ -62,7 +62,8 @@ Claude Code configuration for alternative API endpoint (e.g., MiniMax).
 **Stows to:** `~/.pezzotticlaude/`
 
 **Contents:**
-- `.claude.json` - theme and preferences
+- `.claude.json.template` - theme and preferences template
+- `.claude.json` - runtime state (gitignored, auto-generated)
 - `settings.json.template` - config template (no secrets)
 - `settings.json` - actual config with API key (gitignored)
 
@@ -70,6 +71,7 @@ Claude Code configuration for alternative API endpoint (e.g., MiniMax).
 ```bash
 cd ~/dotfiles/pezzotticlaude/.pezzotticlaude
 cp settings.json.template settings.json
+cp .claude.json.template .claude.json
 # Edit settings.json and add your ANTHROPIC_AUTH_TOKEN
 ```
 
