@@ -11,3 +11,4 @@ pezzotticlaude/.pezzotticlaude/shell-snapshots/
 *.swp
 *.swo
 *.backup
+i3/.config/i3/workspace-monitors.conf
