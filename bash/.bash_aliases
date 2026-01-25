@@ -10,3 +10,6 @@ alias confmonitor='xrandr --output DP-0 --auto --left-of HDMI-0 --output HDMI-0 
 
 # Claude Code with alternative API endpoint (purple background)
 alias pezzotticlaude='echo -ne "\033]11;#2d1b4e\007"; CLAUDE_CONFIG_DIR=~/.pezzotticlaude claude --settings ~/.pezzotticlaude/settings.json; echo -ne "\033]11;#171421\007"'
+
+# Mono completion
+eval "$(/home/lelloman/lelloprojects/mono completions)"
