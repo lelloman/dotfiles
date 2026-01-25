@@ -16,7 +16,7 @@ Clone the repo and stow the packages you want:
 cd ~
 git clone <repo-url> dotfiles
 cd dotfiles
-stow bash i3 pezzotticlaude  # or just the ones you need
+stow bash i3 vim pezzotticlaude  # or just the ones you need
 ```
 
 ## Packages
@@ -80,6 +80,17 @@ cp .claude.json.template .claude.json
 pezzotticlaude  # runs Claude Code with alternative API
 claude          # runs normal Claude Code
 ```
+
+---
+
+### vim
+
+Vim configuration.
+
+**Stows to:** `~/.vimrc`
+
+**Contents:**
+- Relative line numbers (shows current line absolute, others as deltas)
 
 ---
 
