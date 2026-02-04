@@ -15,5 +15,4 @@ debug/
 shell-snapshots/
 
 # Keep *.template files as the source of truth
-# Actual settings.json is ignored since it may contain local customizations
-settings.json
+# settings.json is now managed by dotfiles
