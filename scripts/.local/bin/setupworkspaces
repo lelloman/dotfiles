@@ -23,7 +23,7 @@ TERM_PATH_BOTTOM_RIGHT="$HOME/lelloprojects"
 # Find your monitor names with: xrandr --query | grep connected
 # Format: "WS_NUM:MONITOR_NAME" (space-separated pairs)
 # Leave empty to skip monitor assignment
-MONITOR_ASSIGNMENTS="1:DP-0 2:DP-0 31:HDMI-0 32:HDMI-0 33:HDMI-0 34:HDMI-0 4:DP-0 5:DP-0 6:DP-0"
+MONITOR_ASSIGNMENTS="1:DP-0 2:DP-0 31:HDMI-0 32:HDMI-0 33:HDMI-0 34:HDMI-0 35:HDMI-0 36:HDMI-0 4:DP-0 5:DP-0 6:DP-0"
 
 # =============================================================================
 # MONITOR FUNCTIONS
@@ -104,11 +104,13 @@ main() {
     echo "  VS Code -> workspace 2"
     code &
 
-    echo "Setting up terminal workspaces (31, 32, 33, 34, 4, 5, 6)..."
+    echo "Setting up terminal workspaces (31, 32, 33, 34, 35, 36, 4, 5, 6)..."
     setup_terminal_grid 31
     setup_terminal_grid 32
     setup_terminal_grid 33
     setup_terminal_grid 34
+    setup_terminal_grid 35
+    setup_terminal_grid 36
     setup_terminal_grid 4
 
     echo "  Android Studio -> workspace 5"
