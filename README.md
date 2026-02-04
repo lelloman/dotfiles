@@ -16,7 +16,7 @@ Clone the repo and stow the packages you want:
 cd ~
 git clone <repo-url> dotfiles
 cd dotfiles
-stow bash i3 vim pezzotticlaude  # or just the ones you need
+stow bash claude i3 vim pezzotticlaude  # or just the ones you need
 ```
 
 ## Packages
@@ -55,6 +55,25 @@ i3 window manager configuration.
 
 ---
 
+### claude
+
+Claude Code configuration.
+
+**Stows to:** `~/.claude/`
+
+**Contents:**
+- `settings.json` - statusline and plugins config
+- `statusline.sh` - custom statusline script
+- `commands/` - custom slash commands
+
+**Note:** Stow cannot symlink files into existing directories. After running `stow claude`, manually create symlinks:
+```bash
+ln -sf ~/dotfiles/claude/.claude/statusline.sh ~/.claude/statusline.sh
+ln -sfn ~/dotfiles/claude/.claude/commands ~/.claude/commands
+```
+
+---
+
 ### pezzotticlaude
 
 Claude Code configuration for alternative API endpoint (e.g., MiniMax).
@@ -62,10 +81,18 @@ Claude Code configuration for alternative API endpoint (e.g., MiniMax).
 **Stows to:** `~/.pezzotticlaude/`
 
 **Contents:**
-- `.claude.json.template` - theme and preferences template
+- `.claude.json.template` - app state template (skip-onboarding, etc.)
 - `.claude.json` - runtime state (gitignored, auto-generated)
-- `settings.json.template` - config template (no secrets)
+- `settings.json.template` - config template (statusline, plugins)
 - `settings.json` - actual config with API key (gitignored)
+- `statusline.sh` - custom statusline script
+- `commands/` - custom slash commands (shared with claude)
+
+**Note:** Stow cannot symlink files into existing directories. After running `stow pezzotticlaude`, manually create symlinks:
+```bash
+ln -sf ~/dotfiles/pezzotticlaude/.pezzotticlaude/statusline.sh ~/.pezzotticlaude/statusline.sh
+ln -sfn ~/dotfiles/pezzotticlaude/.pezzotticlaude/commands ~/.pezzotticlaude/commands
+```
 
 **Setup (first time):**
 ```bash
