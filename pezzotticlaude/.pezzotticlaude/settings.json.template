@@ -1,4 +1,15 @@
 {
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+    "ANTHROPIC_AUTH_TOKEN": "",
+    "API_TIMEOUT_MS": "3000000",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "ANTHROPIC_MODEL": "GLM-5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "GML-4.7-flash",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "GLM-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "GLM-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "GLM-4.7-flash"
+  },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true
   },
