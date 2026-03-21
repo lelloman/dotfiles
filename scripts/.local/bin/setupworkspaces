@@ -101,9 +101,6 @@ main() {
     echo "  Chromium -> workspace 1"
     chromium &
 
-    echo "  VS Code -> workspace 2"
-    code &
-
     echo "Setting up terminal workspaces (31, 32, 33, 34, 35, 36, 4, 5, 6)..."
     setup_terminal_grid 31
     setup_terminal_grid 32
@@ -112,9 +109,6 @@ main() {
     setup_terminal_grid 35
     setup_terminal_grid 36
     setup_terminal_grid 4
-
-    echo "  Android Studio -> workspace 5"
-    /home/lelloman/android-studio/bin/studio &
 
     setup_terminal_2col 6
 
