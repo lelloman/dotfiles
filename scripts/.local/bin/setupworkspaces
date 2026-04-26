@@ -22,15 +22,18 @@ TERM_PATH_TOP_LEFT="$HOME/lelloprojects"
 TERM_PATH_TOP_RIGHT="$HOME/lelloprojects"
 TERM_PATH_BOTTOM_LEFT="$HOME/lelloprojects"
 TERM_PATH_BOTTOM_RIGHT="$HOME/lelloprojects"
+SPECIAL_TERM_PATH="$HOME/lelloprojects/ronomepo"
+SPECIAL_TERM_COMMAND='cargo run --release -- ../'
 
-GRID_WORKSPACES=(31 32 33 34 35 36 4)
+GRID_WORKSPACES=(31 32 33 34 35)
 TWOCOL_WORKSPACES=(6)
+SPECIAL_WORKSPACE=4
 
 # Monitor assignments - which workspaces go to which monitor
 # Find your monitor names with: xrandr --query | grep connected
 # Format: "WS_NUM:MONITOR_NAME" (space-separated pairs)
 # Leave empty to skip monitor assignment
-MONITOR_ASSIGNMENTS="1:DP-0 2:DP-0 31:HDMI-0 32:HDMI-0 33:HDMI-0 34:HDMI-0 35:HDMI-0 36:HDMI-0 4:DP-0 5:DP-0 6:DP-0"
+MONITOR_ASSIGNMENTS="1:DP-0 2:DP-0 31:HDMI-0 32:HDMI-0 33:HDMI-0 34:HDMI-0 35:HDMI-0 4:DP-0 5:DP-0 6:DP-0"
 
 # =============================================================================
 # MONITOR FUNCTIONS
@@ -74,6 +77,11 @@ check_requirements() {
         missing=1
     fi
 
+    if ! command -v cargo >/dev/null 2>&1; then
+        echo "Error: cargo is not installed"
+        missing=1
+    fi
+
     if [ ! -f "$GRID_LAYOUT" ]; then
         echo "Error: Missing $GRID_LAYOUT"
         missing=1
@@ -88,7 +96,8 @@ check_requirements() {
         "$TERM_PATH_TOP_LEFT" \
         "$TERM_PATH_TOP_RIGHT" \
         "$TERM_PATH_BOTTOM_LEFT" \
-        "$TERM_PATH_BOTTOM_RIGHT"; do
+        "$TERM_PATH_BOTTOM_RIGHT" \
+        "$SPECIAL_TERM_PATH"; do
         if [ ! -d "$path" ]; then
             echo "Error: Missing working directory $path"
             missing=1
@@ -134,6 +143,18 @@ setup_terminal_2col() {
     sleep 1
 }
 
+setup_special_workspace() {
+    local ws="$1"
+
+    echo "  Workspace $ws: loading 2-column layout and launching ronomepo command..."
+    i3-msg "workspace $ws" >/dev/null
+    i3-msg "append_layout $TWOCOL_LAYOUT" >/dev/null
+
+    "$TERMINAL" --working-directory="$SPECIAL_TERM_PATH" -- bash -lc "$SPECIAL_TERM_COMMAND; exec bash" &
+
+    sleep 1
+}
+
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -148,7 +169,7 @@ main() {
     echo "  Chromium -> workspace 1"
     chromium &
 
-    echo "Setting up terminal workspaces (grid: ${GRID_WORKSPACES[*]}; 2-column: ${TWOCOL_WORKSPACES[*]})..."
+    echo "Setting up terminal workspaces (grid: ${GRID_WORKSPACES[*]}; 2-column: ${TWOCOL_WORKSPACES[*]}; special: $SPECIAL_WORKSPACE)..."
     for ws in "${GRID_WORKSPACES[@]}"; do
         setup_terminal_grid "$ws"
     done
@@ -156,6 +177,8 @@ main() {
     for ws in "${TWOCOL_WORKSPACES[@]}"; do
         setup_terminal_2col "$ws"
     done
+
+    setup_special_workspace "$SPECIAL_WORKSPACE"
 
     i3-msg "workspace 1" >/dev/null
     echo "Done!"
