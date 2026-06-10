@@ -29,6 +29,9 @@ GRID_WORKSPACES=(31 32 33 34 35)
 TWOCOL_WORKSPACES=(6)
 SPECIAL_WORKSPACE=4
 
+TERMINAL_CLASS_REGEX='^Gnome-terminal$'
+CHROMIUM_CLASS_REGEX='^Chromium$'
+
 # Workspace groups used for automatic monitor assignment.
 PRIMARY_WORKSPACES=(1 2 4 5 6)
 SECONDARY_WORKSPACES=(31 32 33 34 35)
@@ -141,6 +144,78 @@ detect_monitor_assignments() {
     echo "$assignments"
 }
 
+# =============================================================================
+# IDEMPOTENCY FUNCTIONS
+# =============================================================================
+
+workspace_class_count() {
+    local ws="$1"
+    local class_regex="$2"
+
+    i3-msg -t get_tree | jq -r --arg ws "$ws" --arg class_regex "$class_regex" '
+        [
+            ..
+            | objects
+            | select(.type? == "workspace" and .name == $ws)
+            | [
+                ..
+                | objects
+                | select(.window? != null)
+                | select((.window_properties.class? // "") | test($class_regex))
+            ]
+            | length
+        ]
+        | add // 0
+    '
+}
+
+workspace_placeholder_count() {
+    local ws="$1"
+    local class_regex="$2"
+
+    i3-msg -t get_tree | jq -r --arg ws "$ws" --arg class_regex "$class_regex" '
+        [
+            ..
+            | objects
+            | select(.type? == "workspace" and .name == $ws)
+            | [
+                ..
+                | objects
+                | select(.window? == null)
+                | select((.swallows? // []) | any(((.class? // "") == $class_regex) or ((.class? // "") | test($class_regex))))
+            ]
+            | length
+        ]
+        | add // 0
+    '
+}
+
+launch_missing_terminals() {
+    local current_count="$1"
+    local target_count="$2"
+    shift 2
+    local paths=("$@")
+    local i
+
+    for ((i = current_count; i < target_count; i++)); do
+        "$TERMINAL" --working-directory="${paths[$i]}" &
+    done
+}
+
+workspace_has_enough_windows() {
+    local ws="$1"
+    local class_regex="$2"
+    local target_count="$3"
+    local current_count
+
+    current_count="$(workspace_class_count "$ws" "$class_regex")"
+    [ "$current_count" -ge "$target_count" ]
+}
+
+# =============================================================================
+# REQUIREMENTS
+# =============================================================================
+
 check_requirements() {
     local missing=0
 
@@ -200,42 +275,93 @@ check_requirements() {
 # WORKSPACE SETUP FUNCTIONS
 # =============================================================================
 
+setup_chromium() {
+    local ws=1
+
+    if workspace_has_enough_windows "$ws" "$CHROMIUM_CLASS_REGEX" 1; then
+        echo "  Chromium already present on workspace $ws; skipping"
+        return 0
+    fi
+
+    echo "  Chromium -> workspace $ws"
+    chromium &
+    sleep 1
+}
+
 setup_terminal_grid() {
     local ws="$1"
+    local current_count
+    local placeholder_count
+    local paths=(
+        "$TERM_PATH_TOP_LEFT"
+        "$TERM_PATH_TOP_RIGHT"
+        "$TERM_PATH_BOTTOM_LEFT"
+        "$TERM_PATH_BOTTOM_RIGHT"
+    )
+
+    current_count="$(workspace_class_count "$ws" "$TERMINAL_CLASS_REGEX")"
+    if [ "$current_count" -ge 4 ]; then
+        echo "  Workspace $ws: already has $current_count terminals; skipping"
+        return 0
+    fi
 
     echo "  Workspace $ws: loading 2x2 layout..."
     i3-msg "workspace $ws" >/dev/null
-    i3-msg "append_layout $GRID_LAYOUT" >/dev/null
 
-    # Launch 4 terminals - they get swallowed into layout placeholders
-    "$TERMINAL" --working-directory="$TERM_PATH_TOP_LEFT" &
-    "$TERMINAL" --working-directory="$TERM_PATH_TOP_RIGHT" &
-    "$TERMINAL" --working-directory="$TERM_PATH_BOTTOM_LEFT" &
-    "$TERMINAL" --working-directory="$TERM_PATH_BOTTOM_RIGHT" &
+    placeholder_count="$(workspace_placeholder_count "$ws" "$TERMINAL_CLASS_REGEX")"
+    if [ "$current_count" -eq 0 ] && [ "$placeholder_count" -eq 0 ]; then
+        i3-msg "append_layout $GRID_LAYOUT" >/dev/null
+    fi
 
+    launch_missing_terminals "$current_count" 4 "${paths[@]}"
     sleep 1
 }
 
 setup_terminal_2col() {
     local ws="$1"
+    local current_count
+    local placeholder_count
+    local paths=(
+        "$TERM_PATH_TOP_LEFT"
+        "$TERM_PATH_BOTTOM_LEFT"
+    )
+
+    current_count="$(workspace_class_count "$ws" "$TERMINAL_CLASS_REGEX")"
+    if [ "$current_count" -ge 2 ]; then
+        echo "  Workspace $ws: already has $current_count terminals; skipping"
+        return 0
+    fi
 
     echo "  Workspace $ws: loading 2-column layout..."
     i3-msg "workspace $ws" >/dev/null
-    i3-msg "append_layout $TWOCOL_LAYOUT" >/dev/null
 
-    # Launch 2 terminals - they get swallowed into layout placeholders
-    "$TERMINAL" --working-directory="$TERM_PATH_TOP_LEFT" &
-    "$TERMINAL" --working-directory="$TERM_PATH_BOTTOM_LEFT" &
+    placeholder_count="$(workspace_placeholder_count "$ws" "$TERMINAL_CLASS_REGEX")"
+    if [ "$current_count" -eq 0 ] && [ "$placeholder_count" -eq 0 ]; then
+        i3-msg "append_layout $TWOCOL_LAYOUT" >/dev/null
+    fi
 
+    launch_missing_terminals "$current_count" 2 "${paths[@]}"
     sleep 1
 }
 
 setup_special_workspace() {
     local ws="$1"
+    local current_count
+    local placeholder_count
+
+    current_count="$(workspace_class_count "$ws" "$TERMINAL_CLASS_REGEX")"
+    if [ "$current_count" -ge 1 ]; then
+        echo "  Workspace $ws: already has a terminal; skipping ronomepo command"
+        return 0
+    fi
 
     echo "  Workspace $ws: loading 2-column layout and launching ronomepo command..."
     i3-msg "workspace $ws" >/dev/null
-    i3-msg "append_layout $TWOCOL_LAYOUT" >/dev/null
+
+    placeholder_count="$(workspace_placeholder_count "$ws" "$TERMINAL_CLASS_REGEX")"
+    if [ "$placeholder_count" -eq 0 ]; then
+        i3-msg "append_layout $TWOCOL_LAYOUT" >/dev/null
+    fi
 
     "$TERMINAL" --working-directory="$SPECIAL_TERM_PATH" -- bash -lc "$SPECIAL_TERM_COMMAND; exec bash" &
 
@@ -256,8 +382,7 @@ main() {
     write_monitor_bindings "$monitor_assignments"
 
     echo "Launching main applications (assign rules handle placement)..."
-    echo "  Chromium -> workspace 1"
-    chromium &
+    setup_chromium
 
     echo "Setting up terminal workspaces (grid: ${GRID_WORKSPACES[*]}; 2-column: ${TWOCOL_WORKSPACES[*]}; special: $SPECIAL_WORKSPACE)..."
     for ws in "${GRID_WORKSPACES[@]}"; do
