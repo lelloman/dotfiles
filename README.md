@@ -51,7 +51,12 @@ i3 window manager configuration.
 - Main i3 config
 - Workspace assignments
 - Workspace cycling script
+- Ordered startup hook for monitor and workspace setup
 - Layouts for terminal grids (2x2, side-by-side)
+
+On login, i3 runs `~/.local/bin/i3-session-startup`, which calls `confmonitor`,
+waits briefly for the monitor layout to settle, then runs `setupworkspaces`.
+Startup output is written to `~/.local/state/i3-startup.log`.
 
 ---
 
@@ -128,6 +133,8 @@ Custom scripts.
 **Stows to:** `~/.local/bin/`
 
 **Contents:**
+- `confmonitor` - monitor layout setup script
+- `i3-session-startup` - ordered i3 startup script
 - `setupworkspaces` - i3 workspace setup script
 - `disk-space-alert.sh` - disk space monitoring
 

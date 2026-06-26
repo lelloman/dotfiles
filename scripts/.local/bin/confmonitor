@@ -1,0 +1,16 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if ! command -v xrandr >/dev/null 2>&1; then
+    echo "confmonitor: xrandr is not installed" >&2
+    exit 1
+fi
+
+connected_outputs=$(xrandr --query | awk '/ connected/ { print $1 }')
+
+if echo "$connected_outputs" | grep -qx "DP-0" && echo "$connected_outputs" | grep -qx "HDMI-0"; then
+    xrandr --output DP-0 --auto --left-of HDMI-0 --output HDMI-0 --auto
+fi
+
+# Single-monitor or unknown-output setup: leave the current layout alone.
