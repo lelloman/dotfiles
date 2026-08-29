@@ -38,8 +38,8 @@ SECONDARY_WORKSPACES=(31 32 33 34 35)
 
 # Preferred output names. If they are not connected, the script falls back to
 # the first and second active outputs reported by i3.
-PREFERRED_PRIMARY_OUTPUT="DP-0"
-PREFERRED_SECONDARY_OUTPUT="HDMI-0"
+PREFERRED_PRIMARY_OUTPUT="HDMI-0"
+PREFERRED_SECONDARY_OUTPUT="DP-0"
 
 # =============================================================================
 # MONITOR FUNCTIONS
