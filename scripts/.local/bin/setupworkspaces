@@ -16,24 +16,23 @@ TERMINAL="gnome-terminal"
 LAYOUT_DIR="$HOME/.config/i3/layouts"
 MONITOR_CONF="$HOME/.config/i3/workspace-monitors.conf"
 GRID_LAYOUT="$LAYOUT_DIR/terminals-2x2.json"
-TWOCOL_LAYOUT="$LAYOUT_DIR/terminals-side-by-side.json"
 
 TERM_PATH_TOP_LEFT="$HOME/lelloprojects"
 TERM_PATH_TOP_RIGHT="$HOME/lelloprojects"
 TERM_PATH_BOTTOM_LEFT="$HOME/lelloprojects"
 TERM_PATH_BOTTOM_RIGHT="$HOME/lelloprojects"
-SPECIAL_TERM_PATH="$HOME/lelloprojects/ronomepo"
-SPECIAL_TERM_COMMAND='cargo run --release -- ../'
+RONOMEPO_PATH="$HOME/lelloprojects/ronomepo"
+RONOMEPO_COMMAND=(cargo run --release -- /home/lelloman/lelloprojects)
 
 GRID_WORKSPACES=(31 32 33 34 35)
-TWOCOL_WORKSPACES=(6)
 SPECIAL_WORKSPACE=4
 
 TERMINAL_CLASS_REGEX='^Gnome-terminal$'
 CHROMIUM_CLASS_REGEX='^Chromium$'
+RONOMEPO_TITLE_REGEX='Ronomepo'
 
 # Workspace groups used for automatic monitor assignment.
-PRIMARY_WORKSPACES=(1 2 4 5 6)
+PRIMARY_WORKSPACES=(1 2 4 5)
 SECONDARY_WORKSPACES=(31 32 33 34 35)
 
 # Preferred output names. If they are not connected, the script falls back to
@@ -169,6 +168,27 @@ workspace_class_count() {
     '
 }
 
+workspace_title_count() {
+    local ws="$1"
+    local title_regex="$2"
+
+    i3-msg -t get_tree | jq -r --arg ws "$ws" --arg title_regex "$title_regex" '
+        [
+            ..
+            | objects
+            | select(.type? == "workspace" and .name == $ws)
+            | [
+                ..
+                | objects
+                | select(.window? != null)
+                | select((.window_properties.title? // .name? // "") | test($title_regex; "i"))
+            ]
+            | length
+        ]
+        | add // 0
+    '
+}
+
 workspace_placeholder_count() {
     local ws="$1"
     local class_regex="$2"
@@ -249,17 +269,12 @@ check_requirements() {
         missing=1
     fi
 
-    if [ ! -f "$TWOCOL_LAYOUT" ]; then
-        echo "Error: Missing $TWOCOL_LAYOUT"
-        missing=1
-    fi
-
     for path in \
         "$TERM_PATH_TOP_LEFT" \
         "$TERM_PATH_TOP_RIGHT" \
         "$TERM_PATH_BOTTOM_LEFT" \
         "$TERM_PATH_BOTTOM_RIGHT" \
-        "$SPECIAL_TERM_PATH"; do
+        "$RONOMEPO_PATH"; do
         if [ ! -d "$path" ]; then
             echo "Error: Missing working directory $path"
             missing=1
@@ -317,53 +332,23 @@ setup_terminal_grid() {
     sleep 1
 }
 
-setup_terminal_2col() {
+setup_ronomepo() {
     local ws="$1"
     local current_count
-    local placeholder_count
-    local paths=(
-        "$TERM_PATH_TOP_LEFT"
-        "$TERM_PATH_BOTTOM_LEFT"
-    )
 
-    current_count="$(workspace_class_count "$ws" "$TERMINAL_CLASS_REGEX")"
-    if [ "$current_count" -ge 2 ]; then
-        echo "  Workspace $ws: already has $current_count terminals; skipping"
-        return 0
-    fi
-
-    echo "  Workspace $ws: loading 2-column layout..."
-    i3-msg "workspace $ws" >/dev/null
-
-    placeholder_count="$(workspace_placeholder_count "$ws" "$TERMINAL_CLASS_REGEX")"
-    if [ "$current_count" -eq 0 ] && [ "$placeholder_count" -eq 0 ]; then
-        i3-msg "append_layout $TWOCOL_LAYOUT" >/dev/null
-    fi
-
-    launch_missing_terminals "$current_count" 2 "${paths[@]}"
-    sleep 1
-}
-
-setup_special_workspace() {
-    local ws="$1"
-    local current_count
-    local placeholder_count
-
-    current_count="$(workspace_class_count "$ws" "$TERMINAL_CLASS_REGEX")"
+    current_count="$(workspace_title_count "$ws" "$RONOMEPO_TITLE_REGEX")"
     if [ "$current_count" -ge 1 ]; then
-        echo "  Workspace $ws: already has a terminal; skipping ronomepo command"
+        echo "  Workspace $ws: Ronomepo is already present; skipping"
         return 0
     fi
 
-    echo "  Workspace $ws: loading 2-column layout and launching ronomepo command..."
+    echo "  Workspace $ws: launching Ronomepo..."
     i3-msg "workspace $ws" >/dev/null
 
-    placeholder_count="$(workspace_placeholder_count "$ws" "$TERMINAL_CLASS_REGEX")"
-    if [ "$placeholder_count" -eq 0 ]; then
-        i3-msg "append_layout $TWOCOL_LAYOUT" >/dev/null
-    fi
-
-    "$TERMINAL" --working-directory="$SPECIAL_TERM_PATH" -- bash -lc "$SPECIAL_TERM_COMMAND; exec bash" &
+    (
+        cd "$RONOMEPO_PATH"
+        exec "${RONOMEPO_COMMAND[@]}"
+    ) &
 
     sleep 1
 }
@@ -384,16 +369,12 @@ main() {
     echo "Launching main applications (assign rules handle placement)..."
     setup_chromium
 
-    echo "Setting up terminal workspaces (grid: ${GRID_WORKSPACES[*]}; 2-column: ${TWOCOL_WORKSPACES[*]}; special: $SPECIAL_WORKSPACE)..."
+    echo "Setting up terminal workspaces (grid: ${GRID_WORKSPACES[*]}; special: $SPECIAL_WORKSPACE)..."
     for ws in "${GRID_WORKSPACES[@]}"; do
         setup_terminal_grid "$ws"
     done
 
-    for ws in "${TWOCOL_WORKSPACES[@]}"; do
-        setup_terminal_2col "$ws"
-    done
-
-    setup_special_workspace "$SPECIAL_WORKSPACE"
+    setup_ronomepo "$SPECIAL_WORKSPACE"
 
     i3-msg "workspace 1" >/dev/null
     echo "Done!"
