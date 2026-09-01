@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+destination="${1:-}"
+target="${2:-}"
+
+case "$destination" in
+    file|clipboard) ;;
+    *) echo "Usage: $0 [file|clipboard] [all|current|selected]" >&2; exit 1 ;;
+esac
+case "$target" in
+    all|current|selected) ;;
+    *) echo "Usage: $0 [file|clipboard] [all|current|selected]" >&2; exit 1 ;;
+esac
+
+geometry=""
+case "$target" in
+    current)
+        geometry="$(
+            swaymsg -t get_tree -r |
+                jq -r '
+                    .. | objects
+                    | select(.type? == "con" and .focused? == true)
+                    | .rect
+                    | "\(.x),\(.y) \(.width)x\(.height)"
+                ' |
+                head -n 1
+        )"
+        if [ -z "$geometry" ]; then
+            echo "sway-screenshot: no focused window found" >&2
+            exit 1
+        fi
+        ;;
+    selected)
+        geometry="$(slurp)" || exit 0
+        [ -n "$geometry" ] || exit 0
+        ;;
+esac
+
+grim_args=()
+if [ -n "$geometry" ]; then
+    grim_args=(-g "$geometry")
+fi
+
+if [ "$destination" = "clipboard" ]; then
+    grim "${grim_args[@]}" - | wl-copy --type image/png
+else
+    picture_dir="${XDG_PICTURES_DIR:-$HOME/Pictures}"
+    mkdir -p "$picture_dir"
+    filename="$picture_dir/screenshot-$(date -u +'%Y%m%d-%H%M%SZ')-$target.png"
+    grim "${grim_args[@]}" "$filename"
+    printf '%s\n' "$filename"
+fi

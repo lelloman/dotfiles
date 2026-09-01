@@ -1,0 +1,23 @@
+{
+  "layout": "splith",
+  "percent": 1,
+  "type": "con",
+  "nodes": [
+    {
+      "percent": 0.5,
+      "type": "con",
+      "swallows": [
+        { "app_id": "^org\\.gnome\\.Terminal.*$" },
+        { "class": "^Gnome-terminal$" }
+      ]
+    },
+    {
+      "percent": 0.5,
+      "type": "con",
+      "swallows": [
+        { "app_id": "^org\\.gnome\\.Terminal.*$" },
+        { "class": "^Gnome-terminal$" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+outputs_json="$(swaymsg -t get_outputs -r)"
+mapfile -t outputs < <(jq -r '.[] | select(.active) | .name' <<< "$outputs_json")
+
+# A single-monitor or headless setup needs no explicit positioning.
+if [ "${#outputs[@]}" -lt 2 ]; then
+    exit 0
+fi
+
+primary=""
+secondary=""
+
+for output in "${outputs[@]}"; do
+    case "$output" in
+        HDMI-A-1|HDMI-1) primary="$output" ;;
+        DP-1|DP-0) secondary="$output" ;;
+    esac
+done
+
+# Preserve the i3 setup's intent even if connector numbering changes.
+if [ -z "$primary" ]; then
+    for output in "${outputs[@]}"; do
+        if [[ "$output" == HDMI-* ]]; then
+            primary="$output"
+            break
+        fi
+    done
+fi
+if [ -z "$primary" ]; then
+    primary="${outputs[0]}"
+fi
+
+if [ -z "$secondary" ] || [ "$secondary" = "$primary" ]; then
+    for output in "${outputs[@]}"; do
+        if [ "$output" != "$primary" ]; then
+            secondary="$output"
+            break
+        fi
+    done
+fi
+
+primary_width="$(
+    jq -r --arg name "$primary" \
+        '.[] | select(.name == $name) | .rect.width' <<< "$outputs_json"
+)"
+
+if ! [[ "$primary_width" =~ ^[0-9]+$ ]] || [ "$primary_width" -eq 0 ]; then
+    echo "confmonitor-sway: invalid width for $primary: $primary_width" >&2
+    exit 1
+fi
+
+swaymsg "output \"$primary\" position 0 0" >/dev/null
+swaymsg "output \"$secondary\" position $primary_width 0" >/dev/null

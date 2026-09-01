@@ -16,7 +16,7 @@ Clone the repo and stow the packages you want:
 cd ~
 git clone <repo-url> dotfiles
 cd dotfiles
-stow bash claude i3 vim pezzotticlaude  # or just the ones you need
+stow bash claude i3 sway waybar scripts vim pezzotticlaude  # or just the ones you need
 ```
 
 ## Packages
@@ -57,6 +57,42 @@ i3 window manager configuration.
 On login, i3 runs `~/.local/bin/i3-session-startup`, which calls `confmonitor`,
 waits briefly for the monitor layout to settle, then runs `setupworkspaces`.
 Startup output is written to `~/.local/state/i3-startup.log`.
+
+---
+
+### sway and waybar
+
+Wayland equivalents of the i3 and i3bar/i3status setup.
+
+**Stows to:** `~/.config/sway/` and `~/.config/waybar/`
+
+The Sway setup preserves the i3 key bindings, output-local workspace cycling,
+application assignments, terminal grid layouts, ordered monitor/workspace
+startup, volume controls, locking, and screenshot actions. Native Wayland
+clients are matched by `app_id`; XWayland clients retain class fallbacks.
+
+Install the Ubuntu dependencies with:
+
+```bash
+sudo apt-get update
+sudo apt-get install sway swaybg swayidle swaylock waybar grim slurp \
+  wl-clipboard fuzzel xwayland xdg-desktop-portal-wlr jq dex \
+  network-manager-gnome pulseaudio-utils
+```
+
+The existing i3 package remains installed as a fallback session. Sway startup
+output is written to `~/.local/state/sway-startup.log`.
+
+On Ubuntu 24.04 with the proprietary NVIDIA driver, install the additional
+session entry after cloning this repository:
+
+```bash
+sudo cp system/usr/share/wayland-sessions/sway-nvidia.desktop \
+  /usr/share/wayland-sessions/
+```
+
+Select **Sway (NVIDIA)** from the login screen. This is kept separate from the
+package-provided Sway entry and can be removed without modifying package files.
 
 ---
 
@@ -136,6 +172,10 @@ Custom scripts.
 - `confmonitor` - monitor layout setup script
 - `i3-session-startup` - ordered i3 startup script
 - `setupworkspaces` - i3 workspace setup script
+- `confmonitor-sway` - Sway output layout setup script
+- `sway-session-startup` - ordered Sway startup script
+- `setupworkspaces-sway` - Sway workspace/application setup script
+- `sway-screenshot` - Wayland file and clipboard screenshot helper
 - `disk-space-alert.sh` - disk space monitoring
 
 ---
