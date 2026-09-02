@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Add clickable workspace controls to an i3status stream."""
+
+from __future__ import annotations
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import threading
+from typing import Any
+
+
+CONTROL_BLOCKS = [
+    {"name": "project", "full_text": "+ project", "color": "#8ec07c"},
+    {"name": "reset", "full_text": "reset", "color": "#fabd2f"},
+]
+CONTROL_NAMES = {block["name"] for block in CONTROL_BLOCKS}
+
+
+def augment_update(line: str) -> str:
+    stripped = line.strip()
+    prefix = "," if stripped.startswith(",") else ""
+    payload = stripped[1:] if prefix else stripped
+    blocks = json.loads(payload)
+    return prefix + json.dumps(CONTROL_BLOCKS + blocks, separators=(",", ":"))
+
+
+def click_name(line: str) -> str | None:
+    payload = line.strip().lstrip(",")
+    if not payload or payload in ("[", "]"):
+        return None
+    event: dict[str, Any] = json.loads(payload)
+    name = event.get("name")
+    if event.get("button") == 1 and name in CONTROL_NAMES:
+        return str(name)
+    return None
+
+
+def handle_clicks() -> None:
+    control = os.path.expanduser("~/.local/bin/i3bar-control")
+    for line in sys.stdin:
+        try:
+            name = click_name(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if name:
+            subprocess.Popen(
+                [control, name],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+
+
+def main() -> int:
+    status = subprocess.Popen(
+        ["i3status", "-c", os.path.expanduser("~/.config/i3/i3status.conf")],
+        stdout=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    def stop(_signum: int, _frame: Any) -> None:
+        status.terminate()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    threading.Thread(target=handle_clicks, daemon=True).start()
+
+    assert status.stdout is not None
+    first_line = status.stdout.readline()
+    if not first_line:
+        return status.wait() or 1
+    header = json.loads(first_line)
+    header["click_events"] = True
+    print(json.dumps(header, separators=(",", ":")), flush=True)
+    print(status.stdout.readline().strip(), flush=True)
+
+    try:
+        for line in status.stdout:
+            try:
+                print(augment_update(line), flush=True)
+            except (json.JSONDecodeError, TypeError):
+                continue
+    finally:
+        status.terminate()
+    return status.wait()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

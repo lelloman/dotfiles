@@ -122,6 +122,10 @@ A relative path is resolved below `/home/lelloman/lelloprojects`; an absolute
 path is used directly. The workspace is named after the directory and exists
 only in the running i3 session.
 
+The i3bar keeps the normal `i3status` information and adds clickable
+`+ project` and `reset` controls. The project control opens a `dmenu` folder
+picker, and reset shows a confirmation dialog before closing any windows.
+
 ---
 
 ### sway and waybar
@@ -239,6 +243,7 @@ Custom scripts.
 - `configure-workspaces` - GUI for workspace, display, layout, and template setup
 - `resetworkspace` - clear and recreate the focused i3 workspace
 - `projectworkspace PATH` - create an ephemeral three-terminal project workspace
+- `i3status-controls` / `i3bar-control` - clickable workspace controls for i3bar
 - `workspace-configurator` - shared configuration/setup engine
 - `confmonitor-sway` - Sway output layout setup script
 - `sway-session-startup` - ordered Sway startup script

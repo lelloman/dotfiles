@@ -1,0 +1,22 @@
+#!/bin/sh
+
+projects_root="/home/lelloman/lelloprojects"
+
+case "${1:-}" in
+    project)
+        project="$({ find "$projects_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true; } | sort | dmenu -i -p 'Project workspace:')"
+        [ -n "$project" ] || exit 0
+        exec "$HOME/.local/bin/projectworkspace" "$project"
+        ;;
+    reset)
+        workspace="$(i3-msg -t get_workspaces | jq -er '.[] | select(.focused) | .name')" || exit 1
+        zenity --question \
+            --title='Reset workspace' \
+            --text="Close every window on workspace '$workspace' and recreate it?" || exit 0
+        exec "$HOME/.local/bin/workspace-configurator" --reset "$workspace"
+        ;;
+    *)
+        echo "Usage: i3bar-control {project|reset}" >&2
+        exit 2
+        ;;
+esac
