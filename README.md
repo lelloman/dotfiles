@@ -53,10 +53,62 @@ i3 window manager configuration.
 - Workspace cycling script
 - Ordered startup hook for monitor and workspace setup
 - Layouts for terminal grids (2x2, side-by-side)
+- GUI workspace editor and reusable, parameterized workspace templates
 
 On login, i3 runs `~/.local/bin/i3-session-startup`, which calls `confmonitor`,
 waits briefly for the monitor layout to settle, then runs `setupworkspaces`.
 Startup output is written to `~/.local/state/i3-startup.log`.
+
+Workspace setup is stored in `~/.config/i3/workspaces.json`. Open the editor
+with:
+
+```bash
+configure-workspaces
+```
+
+The editor controls each workspace's output, layout, launch commands, working
+directories, and i3 window matching rules. **Save and apply all** immediately
+materializes the setup; `setupworkspaces` does the same from a terminal. Direct
+and template-materialized workspaces are both shown in the main list. The title
+and status line clearly mark unsaved changes, and **Reload from disk** restores
+the currently saved configuration.
+
+The normal workflow is intentionally tailored to this setup. **Add** creates a
+workspace from a Chromium, VS Code, Android Studio, Ronomepo, or Empty preset.
+**Project workspaces** manages the repeated terminal setup as a simple table of
+workspace numbers and project folders; folders can be selected individually or
+pasted one per line and numbered automatically. Raw commands and window-match
+rules are generated automatically for Terminal, Chromium, VS Code, Android
+Studio, and Ronomepo, and remain hidden behind **Advanced** unless a genuinely
+custom application is needed. Template terminals can be added in a batch by
+supplying only a count and working directory.
+
+**Compose layout** opens a visual nested-layout editor. Any application slot
+can be split side-by-side or top/bottom, then split again recursively. This
+supports arrangements such as one application in a left column and two stacked
+applications in a right column without manually writing i3 layout JSON.
+
+Before replacing the configuration, every save creates a timestamped backup in
+`~/.local/state/i3-workspace-config/backups/`. The newest 20 backups are kept.
+
+Templates use `{{parameter}}` in any string field. For example, the included
+`four-terminals` template uses `{{path}}` as all four working directories. In
+the template editor, define the template's parameters, layout, and applications
+directly. Then add materialized workspaces beneath it and provide a concrete
+value for each parameter. Materialized workspaces appear in the main list with
+their source template and resolved contents.
+
+To discard every window on the currently focused workspace and recreate that
+workspace from the configuration, run:
+
+```bash
+resetworkspace
+```
+
+This command intentionally closes all applications on that workspace. It
+refuses to act when the focused workspace is not configured. The detached
+reset worker logs to `~/.local/state/i3-workspace-reset.log`, since it also
+closes the terminal from which it was invoked.
 
 ---
 
@@ -172,6 +224,9 @@ Custom scripts.
 - `confmonitor` - monitor layout setup script
 - `i3-session-startup` - ordered i3 startup script
 - `setupworkspaces` - i3 workspace setup script
+- `configure-workspaces` - GUI for workspace, display, layout, and template setup
+- `resetworkspace` - clear and recreate the focused i3 workspace
+- `workspace-configurator` - shared configuration/setup engine
 - `confmonitor-sway` - Sway output layout setup script
 - `sway-session-startup` - ordered Sway startup script
 - `setupworkspaces-sway` - Sway workspace/application setup script

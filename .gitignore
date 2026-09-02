@@ -11,4 +11,5 @@ pezzotticlaude/.pezzotticlaude/shell-snapshots/
 *.swp
 *.swo
 *.backup
+__pycache__/
 i3/.config/i3/workspace-monitors.conf

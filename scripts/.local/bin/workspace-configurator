@@ -1,0 +1,1820 @@
+#!/usr/bin/env python3
+"""Configure and materialize the user's i3 workspaces."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import math
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+
+CONFIG_PATH = Path(os.environ.get("I3_WORKSPACES_CONFIG", "~/.config/i3/workspaces.json")).expanduser()
+MONITOR_CONF = Path("~/.config/i3/workspace-monitors.conf").expanduser()
+ASSIGN_CONF = Path("~/.config/i3/workspace-assigns.conf").expanduser()
+STATE_HOME = Path(os.environ.get("XDG_STATE_HOME", "~/.local/state")).expanduser()
+BACKUP_DIR = Path(os.environ.get("I3_WORKSPACES_BACKUP_DIR", str(STATE_HOME / "i3-workspace-config/backups"))).expanduser()
+BACKUP_COUNT = 20
+LAYOUTS = ("none", "splith", "splitv", "tabbed", "stacked", "grid", "custom")
+MATCH_FIELDS = ("class", "instance", "title", "window_role", "window_type")
+APP_PRESETS = {
+    "Terminal": {"name": "Terminal", "command": "gnome-terminal", "match_field": "class", "match": "^Gnome-terminal$", "launch": True, "assign": False},
+    "Chromium": {"name": "Chromium", "command": "chromium", "match_field": "class", "match": "^Chromium$", "launch": True, "assign": True},
+    "VS Code": {"name": "Visual Studio Code", "command": "code", "match_field": "class", "match": "^Code$", "launch": False, "assign": True},
+    "Android Studio": {"name": "Android Studio", "command": "studio", "match_field": "class", "match": "^jetbrains-studio$", "launch": False, "assign": True},
+    "Ronomepo": {"name": "Ronomepo", "command": "cargo run --release -- /home/lelloman/lelloprojects", "working_directory": "$HOME/lelloprojects/ronomepo", "match_field": "title", "match": "Ronomepo", "launch": True, "assign": False},
+}
+
+
+def app_preset_name(app: dict[str, Any]) -> str:
+    return next(
+        (
+            name
+            for name, preset in APP_PRESETS.items()
+            if app.get("command") == preset.get("command")
+            and app.get("match_field", "class") == preset.get("match_field")
+            and app.get("match") == preset.get("match")
+        ),
+        "Custom",
+    )
+
+
+class ConfigError(Exception):
+    pass
+
+
+def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            config = json.load(handle)
+    except FileNotFoundError as exc:
+        raise ConfigError(f"Configuration not found: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"Invalid JSON in {path}: {exc}") from exc
+    validate_config(config)
+    return config
+
+
+PLACEHOLDER = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
+
+
+def substitute(value: Any, parameters: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        return PLACEHOLDER.sub(lambda match: parameters.get(match.group(1), match.group(0)), value)
+    if isinstance(value, list):
+        return [substitute(item, parameters) for item in value]
+    if isinstance(value, dict):
+        return {key: substitute(item, parameters) for key, item in value.items()}
+    return value
+
+
+def materialize_config(config: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(config)
+    templates = {template["name"]: template for template in config.get("templates", [])}
+    expanded = copy.deepcopy(config.get("workspaces", []))
+    for instance in config.get("materializations", []):
+        template = templates.get(instance.get("template"))
+        if template is None:
+            continue
+        workspace = substitute(template["workspace"], instance.get("parameters", {}))
+        workspace["name"] = str(instance["workspace"])
+        expanded.append(workspace)
+    result["workspaces"] = expanded
+    return result
+
+
+def validate_config(config: dict[str, Any]) -> None:
+    errors: list[str] = []
+    if config.get("version") != 1:
+        errors.append("version must be 1")
+    workspaces = config.get("workspaces")
+    if not isinstance(workspaces, list):
+        errors.append("workspaces must be a list")
+        workspaces = []
+    templates = config.get("templates", [])
+    materializations = config.get("materializations", [])
+    if not isinstance(templates, list):
+        errors.append("templates must be a list")
+        templates = []
+    if not isinstance(materializations, list):
+        errors.append("materializations must be a list")
+        materializations = []
+    template_names: set[str] = set()
+    for template_index, template in enumerate(templates):
+        prefix = f"template {template_index + 1}"
+        template_name = str(template.get("name", "")).strip()
+        if not template_name:
+            errors.append(f"{prefix}: name is required")
+        elif template_name in template_names:
+            errors.append(f"{prefix}: duplicate name {template_name!r}")
+        template_names.add(template_name)
+        parameters = template.get("parameters", [])
+        if not isinstance(parameters, list) or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(item)) for item in parameters):
+            errors.append(f"{prefix}: parameters must be valid identifier strings")
+        used = set(PLACEHOLDER.findall(json.dumps(template.get("workspace", {}))))
+        unknown = used - set(parameters if isinstance(parameters, list) else [])
+        unused = set(parameters if isinstance(parameters, list) else []) - used
+        if unknown:
+            errors.append(f"{prefix}: undeclared placeholders: {', '.join(sorted(unknown))}")
+        if unused:
+            errors.append(f"{prefix}: unused parameters: {', '.join(sorted(unused))}")
+    for instance_index, instance in enumerate(materializations):
+        prefix = f"materialization {instance_index + 1}"
+        template_name = instance.get("template")
+        template = next((item for item in templates if item.get("name") == template_name), None)
+        if template is None:
+            errors.append(f"{prefix}: unknown template {template_name!r}")
+            continue
+        values = instance.get("parameters", {})
+        missing = set(template.get("parameters", [])) - set(values)
+        if missing:
+            errors.append(f"{prefix}: missing parameters: {', '.join(sorted(missing))}")
+        if not str(instance.get("workspace", "")).strip():
+            errors.append(f"{prefix}: workspace name is required")
+    effective = materialize_config(config)
+    workspaces = effective.get("workspaces", [])
+    if not workspaces:
+        errors.append("at least one workspace or materialization is required")
+    seen: set[str] = set()
+    for index, workspace in enumerate(workspaces):
+        prefix = f"workspace {index + 1}"
+        name = str(workspace.get("name", "")).strip()
+        if not name:
+            errors.append(f"{prefix}: name is required")
+        elif name in seen:
+            errors.append(f"{prefix}: duplicate name {name!r}")
+        seen.add(name)
+        if workspace.get("layout", "none") not in LAYOUTS:
+            errors.append(f"{prefix}: unsupported layout {workspace.get('layout')!r}")
+        applications = workspace.get("applications", [])
+        if not isinstance(applications, list):
+            errors.append(f"{prefix}: applications must be a list")
+            continue
+        for app_index, app in enumerate(applications):
+            app_prefix = f"{prefix}, application {app_index + 1}"
+            field = app.get("match_field", "class")
+            pattern = app.get("match", "")
+            if field not in MATCH_FIELDS:
+                errors.append(f"{app_prefix}: unsupported match field {field!r}")
+            if not pattern:
+                errors.append(f"{app_prefix}: match pattern is required")
+            else:
+                try:
+                    re.compile(pattern)
+                except re.error as exc:
+                    errors.append(f"{app_prefix}: invalid match regex: {exc}")
+            if app.get("launch", True):
+                try:
+                    if not shlex.split(app.get("command", "")):
+                        errors.append(f"{app_prefix}: command is required when launch is enabled")
+                except ValueError as exc:
+                    errors.append(f"{app_prefix}: invalid command: {exc}")
+        if workspace.get("layout") == "custom":
+            layout_tree = workspace.get("layout_tree")
+            if not isinstance(layout_tree, dict):
+                errors.append(f"{prefix}: custom layout requires a layout tree")
+            else:
+                try:
+                    leaf_count = layout_leaf_count(layout_tree)
+                except ConfigError as exc:
+                    errors.append(f"{prefix}: {exc}")
+                else:
+                    launched_count = sum(1 for app in applications if app.get("launch", True))
+                    if leaf_count != launched_count:
+                        errors.append(f"{prefix}: custom layout has {leaf_count} slots but {launched_count} launched applications")
+    startup = str(config.get("startup_workspace", "")).strip()
+    if startup and startup not in seen:
+        errors.append(f"startup workspace {startup!r} is not configured")
+    if errors:
+        raise ConfigError("\n".join(errors))
+
+
+def backup_config(path: Path, backup_dir: Path = BACKUP_DIR, keep: int = BACKUP_COUNT) -> Path | None:
+    if not path.exists():
+        return None
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup_path = backup_dir / f"workspaces-{stamp}.json"
+    shutil.copy2(path, backup_path)
+    backups = sorted(backup_dir.glob("workspaces-*.json"))
+    for obsolete in backups[:-keep]:
+        obsolete.unlink()
+    return backup_path
+
+
+def save_config(
+    config: dict[str, Any],
+    path: Path = CONFIG_PATH,
+    backup_dir: Path = BACKUP_DIR,
+) -> Path | None:
+    validate_config(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_config(path, backup_dir)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=2)
+        handle.write("\n")
+    temporary.replace(path)
+    return backup_path
+
+
+def i3(command: str | None = None, message_type: str | None = None) -> Any:
+    arguments = ["i3-msg"]
+    if message_type:
+        arguments.extend(["-t", message_type])
+    if command is not None:
+        arguments.append(command)
+    result = subprocess.run(arguments, check=True, text=True, capture_output=True)
+    if message_type:
+        return json.loads(result.stdout)
+    return result.stdout
+
+
+def active_outputs() -> list[str]:
+    return [output["name"] for output in i3(message_type="get_outputs") if output.get("active")]
+
+
+def resolved_outputs(config: dict[str, Any], outputs: list[str]) -> dict[str, str]:
+    if not outputs:
+        raise ConfigError("i3 reports no active outputs")
+    preferred = config.get("preferred_outputs", {})
+    primary_preference = preferred.get("primary", "")
+    secondary_preference = preferred.get("secondary", "")
+    primary = primary_preference if primary_preference in outputs else outputs[0]
+    remaining = [output for output in outputs if output != primary]
+    if secondary_preference in remaining:
+        secondary = secondary_preference
+    elif remaining:
+        secondary = remaining[0]
+    else:
+        secondary = primary
+    return {"primary": primary, "secondary": secondary}
+
+
+def escape_i3(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def write_generated_i3_config(config: dict[str, Any]) -> None:
+    outputs = resolved_outputs(config, active_outputs())
+    monitor_lines = ["# Auto-generated by workspace-configurator; edit workspaces.json instead."]
+    assign_lines = ["# Auto-generated by workspace-configurator; edit workspaces.json instead."]
+    for workspace in config["workspaces"]:
+        output_setting = str(workspace.get("output", "primary")).strip() or "primary"
+        output = outputs.get(output_setting, output_setting)
+        monitor_lines.append(f'workspace "{escape_i3(str(workspace["name"]))}" output {output}')
+        for app in workspace.get("applications", []):
+            if app.get("assign", False):
+                field = app.get("match_field", "class")
+                pattern = escape_i3(str(app["match"]))
+                name = escape_i3(str(workspace["name"]))
+                assign_lines.append(f'assign [{field}="{pattern}"] "{name}"')
+    MONITOR_CONF.write_text("\n".join(monitor_lines) + "\n", encoding="utf-8")
+    ASSIGN_CONF.write_text("\n".join(assign_lines) + "\n", encoding="utf-8")
+    i3("reload")
+
+
+def descendants(node: dict[str, Any]):
+    yield node
+    for child in node.get("nodes", []) + node.get("floating_nodes", []):
+        yield from descendants(child)
+
+
+def workspace_node(tree: dict[str, Any], name: str) -> dict[str, Any] | None:
+    return next(
+        (node for node in descendants(tree) if node.get("type") == "workspace" and node.get("name") == name),
+        None,
+    )
+
+
+def app_value(node: dict[str, Any], field: str) -> str:
+    properties = node.get("window_properties") or {}
+    if field == "title":
+        return str(properties.get("title") or node.get("name") or "")
+    return str(properties.get(field) or "")
+
+
+def count_matching_windows(tree: dict[str, Any], workspace: str, field: str, pattern: str) -> int:
+    ws_node = workspace_node(tree, workspace)
+    if ws_node is None:
+        return 0
+    regex = re.compile(pattern, re.IGNORECASE if field == "title" else 0)
+    return sum(
+        1
+        for node in descendants(ws_node)
+        if node.get("window") is not None and regex.search(app_value(node, field))
+    )
+
+
+def swallow_for(app: dict[str, Any]) -> dict[str, str]:
+    return {str(app.get("match_field", "class")): str(app["match"])}
+
+
+def leaf(app: dict[str, Any], percent: float | None = None) -> dict[str, Any]:
+    result: dict[str, Any] = {"type": "con", "swallows": [swallow_for(app)]}
+    if percent is not None:
+        result["percent"] = percent
+    return result
+
+
+def layout_leaf_count(node: dict[str, Any]) -> int:
+    node_type = node.get("type")
+    if node_type == "app":
+        return 1
+    if node_type != "split":
+        raise ConfigError(f"invalid layout node type {node_type!r}")
+    orientation = node.get("orientation")
+    if orientation not in ("horizontal", "vertical", "tabbed", "stacked"):
+        raise ConfigError(f"invalid split orientation {orientation!r}")
+    children = node.get("children", [])
+    if not isinstance(children, list) or len(children) < 2:
+        raise ConfigError("every split must contain at least two children")
+    return sum(layout_leaf_count(child) for child in children)
+
+
+def build_custom_layout(node: dict[str, Any], applications: Any) -> dict[str, Any]:
+    if node.get("type") == "app":
+        try:
+            return leaf(next(applications))
+        except StopIteration as exc:
+            raise ConfigError("custom layout contains more slots than applications") from exc
+    orientation = node.get("orientation")
+    i3_layout = {"horizontal": "splith", "vertical": "splitv", "tabbed": "tabbed", "stacked": "stacked"}.get(orientation)
+    if i3_layout is None:
+        raise ConfigError(f"invalid split orientation {orientation!r}")
+    children = node.get("children", [])
+    return {
+        "type": "con",
+        "layout": i3_layout,
+        "nodes": [
+            {**build_custom_layout(child, applications), "percent": 1 / len(children)}
+            for child in children
+        ],
+    }
+
+
+def build_layout(layout: str, applications: list[dict[str, Any]], layout_tree: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    apps = [app for app in applications if app.get("launch", True)]
+    if layout == "none" or not apps:
+        return None
+    if layout == "custom":
+        if layout_tree is None:
+            raise ConfigError("custom layout requires a layout tree")
+        layout_leaf_count(layout_tree)
+        app_iterator = iter(apps)
+        result = build_custom_layout(layout_tree, app_iterator)
+        try:
+            next(app_iterator)
+        except StopIteration:
+            return result
+        raise ConfigError("custom layout contains fewer slots than applications")
+    if layout == "grid":
+        columns = max(1, math.ceil(math.sqrt(len(apps))))
+        rows = math.ceil(len(apps) / columns)
+        groups = [apps[index * rows : (index + 1) * rows] for index in range(columns)]
+        groups = [group for group in groups if group]
+        nodes = []
+        for group in groups:
+            nodes.append(
+                {
+                    "type": "con",
+                    "layout": "splitv",
+                    "percent": 1 / len(groups),
+                    "nodes": [leaf(app, 1 / len(group)) for app in group],
+                }
+            )
+        return {"type": "con", "layout": "splith", "nodes": nodes}
+    return {
+        "type": "con",
+        "layout": layout,
+        "nodes": [leaf(app, 1 / len(apps)) for app in apps],
+    }
+
+
+def launch_app(app: dict[str, Any]) -> None:
+    command = [os.path.expandvars(os.path.expanduser(part)) for part in shlex.split(app["command"])]
+    working_directory = app.get("working_directory", "")
+    cwd = os.path.expandvars(os.path.expanduser(working_directory)) if working_directory else None
+    if cwd and not Path(cwd).is_dir():
+        raise ConfigError(f"Working directory does not exist: {cwd}")
+    subprocess.Popen(command, cwd=cwd, start_new_session=True)
+
+
+def find_workspace(config: dict[str, Any], name: str) -> dict[str, Any]:
+    for workspace in config["workspaces"]:
+        if str(workspace["name"]) == name:
+            return workspace
+    raise ConfigError(f"Workspace {name!r} is not in {CONFIG_PATH}")
+
+
+def setup_workspace(config: dict[str, Any], workspace: dict[str, Any], force_layout: bool = False) -> None:
+    name = str(workspace["name"])
+    print(f"Setting up workspace {name}...")
+    i3(f'workspace "{escape_i3(name)}"')
+    tree = i3(message_type="get_tree")
+    applications = workspace.get("applications", [])
+    launched_apps = [app for app in applications if app.get("launch", True)]
+    window_count = sum(
+        1
+        for node in descendants(workspace_node(tree, name) or {})
+        if node.get("window") is not None
+    )
+    layout = build_layout(workspace.get("layout", "none"), applications, workspace.get("layout_tree"))
+    if layout is not None and (force_layout or window_count == 0):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump(layout, handle)
+            layout_path = handle.name
+        try:
+            i3(f'append_layout "{escape_i3(layout_path)}"')
+        finally:
+            Path(layout_path).unlink(missing_ok=True)
+
+    desired_so_far: dict[tuple[str, str], int] = {}
+    current_counts: dict[tuple[str, str], int] = {}
+    for app in launched_apps:
+        key = (str(app.get("match_field", "class")), str(app["match"]))
+        desired_so_far[key] = desired_so_far.get(key, 0) + 1
+        if key not in current_counts:
+            current_counts[key] = count_matching_windows(tree, name, *key)
+        if current_counts[key] < desired_so_far[key]:
+            print(f"  launching {app.get('name') or app['command']}")
+            launch_app(app)
+            time.sleep(0.25)
+
+
+def setup_all(config: dict[str, Any]) -> None:
+    write_generated_i3_config(config)
+    for workspace in config["workspaces"]:
+        setup_workspace(config, workspace)
+    startup = str(config.get("startup_workspace", "")).strip()
+    if startup:
+        i3(f'workspace "{escape_i3(startup)}"')
+
+
+def focused_workspace() -> str:
+    focused = next((workspace for workspace in i3(message_type="get_workspaces") if workspace.get("focused")), None)
+    if focused is None:
+        raise ConfigError("i3 reports no focused workspace")
+    return str(focused["name"])
+
+
+def reset_workspace(config: dict[str, Any], name: str | None = None) -> None:
+    name = name or focused_workspace()
+    workspace = find_workspace(config, name)
+    tree = i3(message_type="get_tree")
+    node = workspace_node(tree, name)
+    if node:
+        # Killing the workspace's top-level containers also removes stale
+        # append_layout placeholders, so the recreated layout is predictable.
+        for child in node.get("nodes", []) + node.get("floating_nodes", []):
+            i3(f'[con_id={child["id"]}] kill')
+    time.sleep(0.3)
+    setup_workspace(config, workspace, force_layout=True)
+    print(f"Workspace {name} reset.")
+
+
+def run_gui(config: dict[str, Any]) -> None:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog, messagebox, simpledialog, ttk
+    except ImportError as exc:
+        raise ConfigError("The GUI requires python3-tk") from exc
+
+    class Editor(tk.Tk):
+        def __init__(self):
+            super().__init__()
+            self.geometry("1050x650")
+            self.minsize(850, 520)
+            self.data = copy.deepcopy(config)
+            self.selected_index: int | None = None
+            self.selected_ref: tuple[str, int] | None = None
+            self.current_workspace: dict[str, Any] | None = None
+            self.selected_name: str | None = None
+            self.loading = True
+            self.dirty = False
+            self.protocol("WM_DELETE_WINDOW", self._close)
+            self._build()
+            self._refresh_workspaces(0)
+            self.loading = False
+            self._set_dirty(False)
+
+        def _build(self):
+            outer = ttk.Frame(self, padding=12)
+            outer.pack(fill="both", expand=True)
+            window_controls = ttk.Frame(outer)
+            window_controls.pack(fill="x", pady=(0, 8))
+            ttk.Label(window_controls, text="i3 Workspace Setup", font=("TkDefaultFont", 12, "bold")).pack(side="left")
+            ttk.Button(window_controls, text="Close", command=self._close).pack(side="right")
+            settings = ttk.LabelFrame(outer, text="Displays and startup", padding=8)
+            settings.pack(fill="x")
+            ttk.Label(settings, text="Primary output").grid(row=0, column=0, sticky="w")
+            ttk.Label(settings, text="Secondary output").grid(row=0, column=2, sticky="w", padx=(16, 0))
+            ttk.Label(settings, text="Open after setup").grid(row=0, column=4, sticky="w", padx=(16, 0))
+            detected: list[str] = []
+            try:
+                detected = active_outputs()
+            except Exception:
+                pass
+            preferred = self.data.setdefault("preferred_outputs", {})
+            values = list(dict.fromkeys(detected + [preferred.get("primary", ""), preferred.get("secondary", "")]))
+            self.primary_var = tk.StringVar(value=preferred.get("primary", ""))
+            self.secondary_var = tk.StringVar(value=preferred.get("secondary", ""))
+            self.startup_var = tk.StringVar(value=self.data.get("startup_workspace", ""))
+            for variable in (self.primary_var, self.secondary_var, self.startup_var):
+                variable.trace_add("write", self._settings_changed)
+            ttk.Combobox(settings, textvariable=self.primary_var, values=values, width=18).grid(row=1, column=0, columnspan=2, sticky="ew")
+            ttk.Combobox(settings, textvariable=self.secondary_var, values=values, width=18).grid(row=1, column=2, columnspan=2, sticky="ew", padx=(16, 0))
+            self.startup_combo = ttk.Combobox(settings, textvariable=self.startup_var, width=14)
+            self.startup_combo.grid(row=1, column=4, sticky="ew", padx=(16, 0))
+
+            body = ttk.Panedwindow(outer, orient="horizontal")
+            body.pack(fill="both", expand=True, pady=10)
+            left = ttk.Frame(body)
+            right = ttk.Frame(body)
+            body.add(left, weight=1)
+            body.add(right, weight=4)
+            ttk.Label(left, text="Workspaces").pack(anchor="w")
+            self.ws_list = tk.Listbox(left, exportselection=False)
+            self.ws_list.pack(fill="both", expand=True, pady=4)
+            self.ws_list.bind("<<ListboxSelect>>", self._select_workspace)
+            ws_buttons = ttk.Frame(left)
+            ws_buttons.pack(fill="x")
+            ttk.Button(ws_buttons, text="Add", command=self._add_workspace).pack(side="left")
+            ttk.Button(ws_buttons, text="Remove", command=self._remove_workspace).pack(side="left", padx=4)
+            ttk.Button(left, text="Project workspaces…", command=self._project_workspaces).pack(fill="x", pady=(8, 0))
+            ttk.Button(left, text="Advanced templates…", command=self._template_manager).pack(fill="x", pady=(4, 0))
+
+            details = ttk.LabelFrame(right, text="Workspace", padding=8)
+            details.pack(fill="x")
+            self.name_var = tk.StringVar()
+            self.output_var = tk.StringVar()
+            self.layout_var = tk.StringVar()
+            ttk.Label(details, text="Name").grid(row=0, column=0, sticky="w")
+            self.name_entry = ttk.Entry(details, textvariable=self.name_var, width=15)
+            self.name_entry.grid(row=1, column=0, sticky="ew")
+            ttk.Label(details, text="Output (role or exact name)").grid(row=0, column=1, sticky="w", padx=(12, 0))
+            self.output_combo = ttk.Combobox(details, textvariable=self.output_var, values=["primary", "secondary"] + detected)
+            self.output_combo.grid(row=1, column=1, sticky="ew", padx=(12, 0))
+            ttk.Label(details, text="Layout").grid(row=0, column=2, sticky="w", padx=(12, 0))
+            self.layout_combo = ttk.Combobox(details, textvariable=self.layout_var, values=LAYOUTS, state="readonly", width=12)
+            self.layout_combo.grid(row=1, column=2, sticky="ew", padx=(12, 0))
+            self.update_button = ttk.Button(details, text="Update", command=self._store_workspace)
+            self.update_button.grid(row=1, column=3, padx=(12, 0))
+            self.compose_button = ttk.Button(details, text="Compose layout…", command=self._compose_selected_layout)
+            self.compose_button.grid(row=1, column=4, padx=(6, 0))
+            for variable in (self.name_var, self.output_var, self.layout_var):
+                variable.trace_add("write", self._workspace_fields_changed)
+            details.columnconfigure(1, weight=1)
+
+            apps = ttk.LabelFrame(right, text="Contents (order also controls layout position)", padding=8)
+            apps.pack(fill="both", expand=True, pady=(10, 0))
+            columns = ("name", "type", "cwd", "launch", "assign")
+            self.app_tree = ttk.Treeview(apps, columns=columns, show="headings", selectmode="browse")
+            for column, title, width in (("name", "Name", 150), ("type", "Application", 130), ("cwd", "Working directory", 330), ("launch", "Launch", 70), ("assign", "Assign", 70)):
+                self.app_tree.heading(column, text=title)
+                self.app_tree.column(column, width=width, minwidth=50)
+            self.app_tree.pack(fill="both", expand=True)
+            self.app_tree.bind("<Double-1>", lambda _event: self._edit_app())
+            app_buttons = ttk.Frame(apps)
+            app_buttons.pack(fill="x", pady=(6, 0))
+            self.app_edit_buttons = []
+            for text_value, command, padding in (
+                ("Add common…", self._add_common_app, 0),
+                ("Add custom…", self._add_app, 4),
+                ("Edit", self._edit_app, 4),
+                ("Remove", self._remove_app, 0),
+                ("Move up", lambda: self._move_app(-1), 16),
+                ("Move down", lambda: self._move_app(1), 4),
+            ):
+                button = ttk.Button(app_buttons, text=text_value, command=command)
+                button.pack(side="left", padx=(padding, 0))
+                self.app_edit_buttons.append(button)
+
+            actions = ttk.Frame(outer)
+            actions.pack(fill="x")
+            ttk.Button(actions, text="Save", command=self._save).pack(side="right")
+            ttk.Button(actions, text="Save and apply all", command=self._apply).pack(side="right", padx=6)
+            ttk.Button(actions, text="Reset selected workspace", command=self._reset_selected).pack(side="left")
+            ttk.Button(actions, text="Reload from disk", command=self._reload).pack(side="left", padx=6)
+            self.status_var = tk.StringVar()
+            ttk.Label(outer, textvariable=self.status_var).pack(fill="x", pady=(8, 0))
+
+        def _set_dirty(self, dirty=True):
+            self.dirty = dirty
+            self.title("i3 Workspace Setup — UNSAVED" if dirty else "i3 Workspace Setup")
+            self.status_var.set(
+                f"Unsaved changes — {CONFIG_PATH}" if dirty else f"Saved configuration — {CONFIG_PATH}"
+            )
+
+        def _mark_dirty(self):
+            if not self.loading:
+                self._set_dirty(True)
+
+        def _settings_changed(self, *_args):
+            if self.loading:
+                return
+            self._commit_settings()
+            self._mark_dirty()
+
+        def _workspace_fields_changed(self, *_args):
+            if self.loading or self.selected_index is None:
+                return
+            workspace = self.data["workspaces"][self.selected_index]
+            old_name = str(workspace["name"])
+            new_name = self.name_var.get().strip()
+            workspace.update(
+                name=new_name,
+                output=self.output_var.get().strip(),
+                layout=self.layout_var.get(),
+            )
+            if self.startup_var.get() == old_name and new_name != old_name:
+                self.startup_var.set(new_name)
+            self.selected_name = str(workspace["name"])
+            self._mark_dirty()
+
+        def _close(self):
+            if self.dirty and not messagebox.askyesno(
+                "Discard changes?", "There are unsaved changes. Close without saving?", parent=self
+            ):
+                return
+            self.destroy()
+
+        def _commit_settings(self):
+            self.data["preferred_outputs"] = {"primary": self.primary_var.get().strip(), "secondary": self.secondary_var.get().strip()}
+            self.data["startup_workspace"] = self.startup_var.get().strip()
+
+        def _refresh_workspaces(self, select: int | None = None):
+            previous_loading = self.loading
+            self.loading = True
+            self.ws_list.delete(0, "end")
+            self.workspace_refs = []
+            for index, workspace in enumerate(self.data.get("workspaces", [])):
+                self.workspace_refs.append(("direct", index))
+                self.ws_list.insert("end", str(workspace["name"]))
+            for index, instance in enumerate(self.data.get("materializations", [])):
+                self.workspace_refs.append(("materialized", index))
+                self.ws_list.insert("end", f"{instance['workspace']}  ← {instance['template']}")
+            effective_names = [str(workspace["name"]) for workspace in materialize_config(self.data)["workspaces"]]
+            self.startup_combo.configure(values=effective_names)
+            if select is not None and self.workspace_refs:
+                select = min(select, len(self.workspace_refs) - 1)
+                self.ws_list.selection_set(select)
+                self.ws_list.event_generate("<<ListboxSelect>>")
+            self.loading = previous_loading
+
+        def _select_workspace(self, _event=None):
+            selection = self.ws_list.curselection()
+            if not selection:
+                return
+            self.loading = True
+            self.selected_ref = self.workspace_refs[selection[0]]
+            kind, index = self.selected_ref
+            if kind == "direct":
+                self.selected_index = index
+                workspace = self.data["workspaces"][index]
+                editable = True
+            else:
+                self.selected_index = None
+                instance = self.data["materializations"][index]
+                name = str(instance["workspace"])
+                workspace = find_workspace(materialize_config(self.data), name)
+                editable = False
+            self.current_workspace = workspace
+            self.selected_name = str(workspace["name"])
+            self.name_var.set(workspace["name"])
+            self.output_var.set(workspace.get("output", "primary"))
+            self.layout_var.set(workspace.get("layout", "none"))
+            entry_state = "normal" if editable else "disabled"
+            combo_state = "normal" if editable else "disabled"
+            layout_state = "readonly" if editable else "disabled"
+            self.name_entry.configure(state=entry_state)
+            self.output_combo.configure(state=combo_state)
+            self.layout_combo.configure(state=layout_state)
+            self.update_button.configure(state="normal" if editable else "disabled")
+            self.compose_button.configure(state="normal" if editable else "disabled")
+            for button in self.app_edit_buttons:
+                button.configure(state="normal" if editable else "disabled")
+            self._refresh_apps()
+            self.loading = False
+
+        def _store_workspace(self):
+            if self.selected_index is None:
+                return
+            workspace = self.data["workspaces"][self.selected_index]
+            old_name = str(workspace["name"])
+            workspace.update(name=self.name_var.get().strip(), output=self.output_var.get().strip(), layout=self.layout_var.get())
+            if self.startup_var.get() == old_name:
+                self.startup_var.set(workspace["name"])
+            selected = self.workspace_refs.index(("direct", self.selected_index))
+            self._refresh_workspaces(selected)
+            self._mark_dirty()
+
+        def _add_workspace(self):
+            dialog = tk.Toplevel(self)
+            dialog.title("Add workspace")
+            dialog.transient(self)
+            dialog.grab_set()
+            name_var = tk.StringVar()
+            output_var = tk.StringVar(value="primary")
+            preset_var = tk.StringVar(value="Empty")
+            directory_var = tk.StringVar(value="$HOME/lelloprojects")
+            rows = (
+                ("Workspace name", ttk.Entry(dialog, textvariable=name_var)),
+                ("Display", ttk.Combobox(dialog, textvariable=output_var, values=("primary", "secondary"), state="readonly")),
+                ("Preset", ttk.Combobox(dialog, textvariable=preset_var, values=("Empty", "Chromium", "VS Code", "Android Studio", "Ronomepo"), state="readonly")),
+                ("Working directory (Ronomepo)", ttk.Entry(dialog, textvariable=directory_var)),
+            )
+            for row, (label, widget) in enumerate(rows):
+                ttk.Label(dialog, text=label).grid(row=row * 2, column=0, sticky="w", padx=10, pady=(8, 0))
+                widget.grid(row=row * 2 + 1, column=0, sticky="ew", padx=10)
+
+            def add():
+                name = name_var.get().strip()
+                if not name:
+                    messagebox.showerror("Missing name", "Workspace name is required.", parent=dialog)
+                    return
+                preset = preset_var.get()
+                applications = []
+                if preset == "Chromium":
+                    applications = [{"name": "Chromium", "command": "chromium", "match_field": "class", "match": "^Chromium$", "launch": True, "assign": True}]
+                elif preset == "VS Code":
+                    applications = [{"name": "Visual Studio Code", "command": "code", "match_field": "class", "match": "^Code$", "launch": False, "assign": True}]
+                elif preset == "Android Studio":
+                    applications = [{"name": "Android Studio", "command": "studio", "match_field": "class", "match": "^jetbrains-studio$", "launch": False, "assign": True}]
+                elif preset == "Ronomepo":
+                    applications = [{"name": "Ronomepo", "command": "cargo run --release -- /home/lelloman/lelloprojects", "working_directory": directory_var.get().strip(), "match_field": "title", "match": "Ronomepo", "launch": True, "assign": False}]
+                self.data["workspaces"].append({"name": name, "output": output_var.get(), "layout": "none", "applications": applications})
+                self._mark_dirty()
+                dialog.destroy()
+                self._refresh_workspaces(len(self.data["workspaces"]) - 1)
+
+            buttons = ttk.Frame(dialog, padding=10)
+            buttons.grid(row=8, column=0, sticky="e")
+            ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="left")
+            ttk.Button(buttons, text="Add", command=add).pack(side="left", padx=(6, 0))
+            dialog.columnconfigure(0, weight=1)
+            dialog.bind("<Escape>", lambda _event: dialog.destroy())
+
+        def _remove_workspace(self):
+            if self.selected_ref is None:
+                return
+            kind, index = self.selected_ref
+            if kind == "direct":
+                name = self.data["workspaces"][index]["name"]
+            else:
+                name = self.data["materializations"][index]["workspace"]
+            if messagebox.askyesno("Remove workspace", f"Remove workspace {name}?", parent=self):
+                if kind == "direct":
+                    del self.data["workspaces"][index]
+                else:
+                    del self.data["materializations"][index]
+                self.selected_index = None
+                self.selected_ref = None
+                self._mark_dirty()
+                self._refresh_workspaces(0)
+
+        def _compose_selected_layout(self):
+            if self.selected_index is not None:
+                self._compose_layout(self.data["workspaces"][self.selected_index])
+
+        def _compose_layout(self, workspace, parent=None, on_save=None):
+            owner = parent or self
+            dialog = tk.Toplevel(self)
+            dialog.title("Layout composer")
+            dialog.geometry("900x620")
+            dialog.transient(owner)
+            dialog.grab_set()
+            launched = [copy.deepcopy(app) for app in workspace.get("applications", []) if app.get("launch", True)]
+            passive = [copy.deepcopy(app) for app in workspace.get("applications", []) if not app.get("launch", True)]
+            if not launched:
+                terminal = copy.deepcopy(APP_PRESETS["Terminal"])
+                terminal["working_directory"] = "$HOME/lelloprojects"
+                launched.append(terminal)
+            if workspace.get("layout") == "custom" and workspace.get("layout_tree"):
+                tree = copy.deepcopy(workspace["layout_tree"])
+                if layout_leaf_count(tree) != len(launched):
+                    tree = {"type": "split", "orientation": "horizontal", "children": [{"type": "app"} for _ in launched]}
+            elif len(launched) == 1:
+                tree = {"type": "app"}
+            else:
+                current_layout = workspace.get("layout")
+                if current_layout == "grid":
+                    columns = max(1, math.ceil(math.sqrt(len(launched))))
+                    rows = math.ceil(len(launched) / columns)
+                    groups = [launched[index * rows : (index + 1) * rows] for index in range(columns)]
+                    groups = [group for group in groups if group]
+                    children = [
+                        {"type": "app"}
+                        if len(group) == 1
+                        else {"type": "split", "orientation": "vertical", "children": [{"type": "app"} for _ in group]}
+                        for group in groups
+                    ]
+                    tree = {"type": "split", "orientation": "horizontal", "children": children}
+                else:
+                    orientation = {
+                        "splitv": "vertical",
+                        "tabbed": "tabbed",
+                        "stacked": "stacked",
+                    }.get(current_layout, "horizontal")
+                    tree = {"type": "split", "orientation": orientation, "children": [{"type": "app"} for _ in launched]}
+            selected_path = [()]
+            rectangles = []
+
+            outer = ttk.Frame(dialog, padding=10)
+            outer.pack(fill="both", expand=True)
+            header = ttk.Frame(outer)
+            header.pack(fill="x")
+            ttk.Label(header, text="Layout composer", font=("TkDefaultFont", 12, "bold")).pack(side="left")
+            ttk.Label(outer, text="Select a rectangle, then split or edit it. Splits can be nested as deeply as needed.").pack(fill="x", pady=(4, 8))
+            canvas = tk.Canvas(outer, background="#20242b", highlightthickness=0)
+            canvas.pack(fill="both", expand=True)
+            controls = ttk.Frame(outer)
+            controls.pack(fill="x", pady=(8, 0))
+
+            def leaf_paths(node, path=()):
+                if node.get("type") == "app":
+                    return [path]
+                result = []
+                for index, child in enumerate(node.get("children", [])):
+                    result.extend(leaf_paths(child, path + (index,)))
+                return result
+
+            def node_at(path):
+                node = tree
+                for index in path:
+                    node = node["children"][index]
+                return node
+
+            def replace_at(path, replacement):
+                nonlocal tree
+                if not path:
+                    tree = replacement
+                    return
+                parent_node = node_at(path[:-1])
+                parent_node["children"][path[-1]] = replacement
+
+            def app_index_for(path):
+                return leaf_paths(tree).index(path)
+
+            def draw_node(node, x1, y1, x2, y2, path=()):
+                if node.get("type") == "app":
+                    index = app_index_for(path)
+                    app = launched[index]
+                    selected = path == selected_path[0]
+                    inset = 4
+                    canvas.create_rectangle(
+                        x1 + inset,
+                        y1 + inset,
+                        x2 - inset,
+                        y2 - inset,
+                        fill="#4c7899" if selected else "#343b46",
+                        outline="#8fc7ff" if selected else "#6d7683",
+                        width=3 if selected else 1,
+                    )
+                    label = f"{app.get('name') or app_preset_name(app)}\n{app_preset_name(app)}"
+                    directory = app.get("working_directory", "")
+                    if directory:
+                        label += f"\n{directory}"
+                    canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=label, fill="white", width=max(40, x2 - x1 - 20), justify="center")
+                    rectangles.append((x1, y1, x2, y2, path))
+                    return
+                children = node.get("children", [])
+                orientation = node.get("orientation")
+                for index, child in enumerate(children):
+                    if orientation == "vertical":
+                        height = (y2 - y1) / len(children)
+                        draw_node(child, x1, y1 + index * height, x2, y1 + (index + 1) * height, path + (index,))
+                    else:
+                        width = (x2 - x1) / len(children)
+                        draw_node(child, x1 + index * width, y1, x1 + (index + 1) * width, y2, path + (index,))
+
+            def redraw(_event=None):
+                rectangles.clear()
+                canvas.delete("all")
+                draw_node(tree, 0, 0, max(canvas.winfo_width(), 100), max(canvas.winfo_height(), 100))
+
+            def select_rectangle(event):
+                for x1, y1, x2, y2, path in rectangles:
+                    if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+                        selected_path[0] = path
+                        redraw()
+                        return
+
+            def split(orientation):
+                path = selected_path[0]
+                if node_at(path).get("type") != "app":
+                    return
+                index = app_index_for(path)
+                duplicate = copy.deepcopy(launched[index])
+                duplicate["name"] = f"{app_preset_name(duplicate)} {len(launched) + 1}"
+                launched.insert(index + 1, duplicate)
+                replace_at(path, {"type": "split", "orientation": orientation, "children": [{"type": "app"}, {"type": "app"}]})
+                selected_path[0] = path + (1,)
+                redraw()
+
+            def edit_app():
+                path = selected_path[0]
+                index = app_index_for(path)
+                updated = self._app_dialog(launched[index], parent=dialog)
+                if updated:
+                    launched[index] = updated
+                    redraw()
+
+            def remove_slot():
+                nonlocal tree
+                paths = leaf_paths(tree)
+                if len(paths) == 1:
+                    return
+                path = selected_path[0]
+                launched.pop(app_index_for(path))
+                parent_path = path[:-1]
+                parent_node = node_at(parent_path)
+                del parent_node["children"][path[-1]]
+                if len(parent_node["children"]) == 1:
+                    replace_at(parent_path, parent_node["children"][0])
+                selected_path[0] = leaf_paths(tree)[0]
+                redraw()
+
+            def example_preset():
+                nonlocal tree
+                while len(launched) < 3:
+                    terminal = copy.deepcopy(APP_PRESETS["Terminal"])
+                    terminal["name"] = f"Terminal {len(launched) + 1}"
+                    terminal["working_directory"] = "$HOME/lelloprojects"
+                    launched.append(terminal)
+                if len(launched) > 3:
+                    del launched[3:]
+                tree = {
+                    "type": "split",
+                    "orientation": "horizontal",
+                    "children": [
+                        {"type": "app"},
+                        {"type": "split", "orientation": "vertical", "children": [{"type": "app"}, {"type": "app"}]},
+                    ],
+                }
+                selected_path[0] = (0,)
+                redraw()
+
+            def save_layout():
+                workspace["layout"] = "custom"
+                workspace["layout_tree"] = copy.deepcopy(tree)
+                workspace["applications"] = copy.deepcopy(launched + passive)
+                self._mark_dirty()
+                if on_save:
+                    on_save()
+                dialog.destroy()
+                if self.selected_index is not None and workspace is self.data["workspaces"][self.selected_index]:
+                    self.current_workspace = workspace
+                    self.layout_var.set("custom")
+                    self._refresh_apps()
+
+            ttk.Button(controls, text="Split side-by-side", command=lambda: split("horizontal")).pack(side="left")
+            ttk.Button(controls, text="Split top/bottom", command=lambda: split("vertical")).pack(side="left", padx=5)
+            ttk.Button(controls, text="Edit application…", command=edit_app).pack(side="left", padx=(12, 5))
+            ttk.Button(controls, text="Remove slot", command=remove_slot).pack(side="left")
+            ttk.Button(controls, text="Example: 1 left + 2 right", command=example_preset).pack(side="left", padx=(12, 0))
+            ttk.Button(controls, text="Use layout", command=save_layout).pack(side="right")
+            ttk.Button(controls, text="Cancel", command=dialog.destroy).pack(side="right", padx=5)
+            canvas.bind("<Configure>", redraw)
+            canvas.bind("<Button-1>", select_rectangle)
+            dialog.bind("<Escape>", lambda _event: dialog.destroy())
+            redraw()
+
+        def _project_workspaces(self):
+            templates = self.data.setdefault("templates", [])
+            template = next((item for item in templates if item.get("name") == "four-terminals"), None)
+            if template is None:
+                template = next((item for item in templates if "path" in item.get("parameters", [])), None)
+            if template is None:
+                template = {
+                    "name": "project-terminals",
+                    "parameters": ["path"],
+                    "workspace": {"output": "secondary", "layout": "grid", "applications": []},
+                }
+                templates.append(template)
+                self._mark_dirty()
+
+            dialog = tk.Toplevel(self)
+            dialog.title("Project workspaces")
+            dialog.geometry("820x560")
+            dialog.transient(self)
+            dialog.grab_set()
+            outer = ttk.Frame(dialog, padding=10)
+            outer.pack(fill="both", expand=True)
+            header = ttk.Frame(outer)
+            header.pack(fill="x")
+            ttk.Label(header, text="Project workspaces", font=("TkDefaultFont", 12, "bold")).pack(side="left")
+
+            def close():
+                dialog.destroy()
+                self._refresh_workspaces(0)
+
+            ttk.Button(header, text="Close", command=close).pack(side="right")
+            ttk.Label(
+                outer,
+                text="Each row creates one workspace containing the same terminal layout, opened in that project's folder.",
+            ).pack(fill="x", pady=(4, 10))
+
+            settings = ttk.LabelFrame(outer, text="Shared terminal setup", padding=8)
+            settings.pack(fill="x")
+            blueprint = template.setdefault("workspace", {})
+            output_var = tk.StringVar(value=blueprint.get("output", "secondary"))
+            layout_var = tk.StringVar(value=blueprint.get("layout", "grid"))
+            terminal_count_var = tk.IntVar(value=max(1, len(blueprint.get("applications", [])) or 4))
+            ttk.Label(settings, text="Display").grid(row=0, column=0, sticky="w")
+            ttk.Combobox(settings, textvariable=output_var, values=("primary", "secondary"), state="readonly", width=14).grid(row=1, column=0, sticky="w")
+            ttk.Label(settings, text="Layout").grid(row=0, column=1, sticky="w", padx=(15, 0))
+            ttk.Combobox(settings, textvariable=layout_var, values=("grid", "splith", "splitv", "tabbed", "stacked", "custom"), state="readonly", width=14).grid(row=1, column=1, sticky="w", padx=(15, 0))
+            ttk.Label(settings, text="Terminals").grid(row=0, column=2, sticky="w", padx=(15, 0))
+            ttk.Spinbox(settings, from_=1, to=12, textvariable=terminal_count_var, width=7).grid(row=1, column=2, sticky="w", padx=(15, 0))
+
+            status_var = tk.StringVar(value="Changes are saved only when you click Save in the main window.")
+
+            def update_template(*_args):
+                try:
+                    count = int(terminal_count_var.get())
+                except (ValueError, tk.TclError):
+                    return
+                if not 1 <= count <= 12:
+                    return
+                blueprint["output"] = output_var.get()
+                blueprint["layout"] = layout_var.get()
+                blueprint["applications"] = [
+                    {
+                        "name": f"Terminal {index + 1}",
+                        "command": "gnome-terminal",
+                        "working_directory": "{{path}}",
+                        "match_field": "class",
+                        "match": "^Gnome-terminal$",
+                        "launch": True,
+                        "assign": False,
+                    }
+                    for index in range(count)
+                ]
+                if blueprint["layout"] == "custom":
+                    current_tree = blueprint.get("layout_tree")
+                    if not current_tree or layout_leaf_count(current_tree) != count:
+                        blueprint["layout_tree"] = (
+                            {"type": "app"}
+                            if count == 1
+                            else {"type": "split", "orientation": "horizontal", "children": [{"type": "app"} for _ in range(count)]}
+                        )
+                template["parameters"] = ["path"]
+                self._mark_dirty()
+                status_var.set("Terminal setup updated — unsaved")
+
+            for variable in (output_var, layout_var, terminal_count_var):
+                variable.trace_add("write", update_template)
+
+            def compose_project_layout():
+                def composed():
+                    terminal_count_var.set(len(blueprint.get("applications", [])))
+                    layout_var.set("custom")
+                    status_var.set("Custom layout updated — unsaved")
+                self._compose_layout(blueprint, parent=dialog, on_save=composed)
+
+            ttk.Button(settings, text="Compose…", command=compose_project_layout).grid(row=1, column=3, padx=(18, 0))
+            ttk.Label(settings, textvariable=status_var).grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
+
+            rows = ttk.LabelFrame(outer, text="Workspace → project folder", padding=8)
+            rows.pack(fill="both", expand=True, pady=(10, 0))
+            tree = ttk.Treeview(rows, columns=("workspace", "path"), show="headings", selectmode="browse")
+            tree.heading("workspace", text="Workspace")
+            tree.heading("path", text="Project folder")
+            tree.column("workspace", width=100, stretch=False)
+            tree.column("path", width=620)
+            tree.pack(fill="both", expand=True)
+            row_buttons = ttk.Frame(rows)
+            row_buttons.pack(fill="x", pady=(6, 0))
+
+            def template_instances():
+                return [
+                    (index, instance)
+                    for index, instance in enumerate(self.data.setdefault("materializations", []))
+                    if instance.get("template") == template.get("name")
+                ]
+
+            def refresh():
+                tree.delete(*tree.get_children())
+                for index, instance in template_instances():
+                    tree.insert("", "end", iid=str(index), values=(instance.get("workspace", ""), instance.get("parameters", {}).get("path", "")))
+
+            def next_workspace_number():
+                numbers = [
+                    int(str(workspace["name"]))
+                    for workspace in materialize_config(self.data).get("workspaces", [])
+                    if str(workspace.get("name", "")).isdigit()
+                ]
+                return max(numbers + [30]) + 1
+
+            def portable_path(path):
+                home = str(Path.home())
+                return "$HOME" + path[len(home):] if path == home or path.startswith(home + os.sep) else path
+
+            def add_folder():
+                path = filedialog.askdirectory(parent=dialog, title="Choose project folder", initialdir=str(Path.home() / "lelloprojects"))
+                if not path:
+                    return
+                workspace = simpledialog.askstring(
+                    "Workspace number",
+                    "Workspace name or number:",
+                    parent=dialog,
+                    initialvalue=str(next_workspace_number()),
+                )
+                if not workspace:
+                    return
+                self.data["materializations"].append({"template": template["name"], "workspace": workspace.strip(), "parameters": {"path": portable_path(path)}})
+                self._mark_dirty()
+                refresh()
+
+            def add_many():
+                form = tk.Toplevel(dialog)
+                form.title("Add several project workspaces")
+                form.transient(dialog)
+                form.grab_set()
+                ttk.Label(form, text="Paste one project folder per line").pack(anchor="w", padx=10, pady=(10, 0))
+                paths_text = tk.Text(form, width=72, height=12)
+                paths_text.pack(fill="both", expand=True, padx=10)
+                starting_var = tk.IntVar(value=next_workspace_number())
+                number_row = ttk.Frame(form, padding=10)
+                number_row.pack(fill="x")
+                ttk.Label(number_row, text="First workspace number").pack(side="left")
+                ttk.Spinbox(number_row, from_=1, to=999, textvariable=starting_var, width=8).pack(side="left", padx=8)
+
+                def accept():
+                    paths = [line.strip() for line in paths_text.get("1.0", "end").splitlines() if line.strip()]
+                    if not paths:
+                        return
+                    start = int(starting_var.get())
+                    for offset, path in enumerate(paths):
+                        self.data["materializations"].append({
+                            "template": template["name"],
+                            "workspace": str(start + offset),
+                            "parameters": {"path": portable_path(os.path.expandvars(os.path.expanduser(path)))},
+                        })
+                    self._mark_dirty()
+                    form.destroy()
+                    refresh()
+
+                ttk.Button(number_row, text="Add", command=accept).pack(side="right")
+                ttk.Button(number_row, text="Cancel", command=form.destroy).pack(side="right", padx=6)
+
+            def selected_index():
+                selection = tree.selection()
+                return int(selection[0]) if selection else None
+
+            def edit_row():
+                index = selected_index()
+                if index is None:
+                    return
+                instance = self.data["materializations"][index]
+                form = tk.Toplevel(dialog)
+                form.title("Edit project workspace")
+                form.transient(dialog)
+                form.grab_set()
+                workspace_var = tk.StringVar(value=instance.get("workspace", ""))
+                path_var = tk.StringVar(value=instance.get("parameters", {}).get("path", ""))
+                ttk.Label(form, text="Workspace").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 0))
+                ttk.Entry(form, textvariable=workspace_var, width=60).grid(row=1, column=0, columnspan=2, sticky="ew", padx=10)
+                ttk.Label(form, text="Project folder").grid(row=2, column=0, sticky="w", padx=10, pady=(8, 0))
+                ttk.Entry(form, textvariable=path_var, width=60).grid(row=3, column=0, sticky="ew", padx=10)
+
+                def browse():
+                    initial = os.path.expandvars(os.path.expanduser(path_var.get()))
+                    chosen = filedialog.askdirectory(parent=form, initialdir=initial if Path(initial).is_dir() else str(Path.home()))
+                    if chosen:
+                        path_var.set(portable_path(chosen))
+
+                ttk.Button(form, text="Browse…", command=browse).grid(row=3, column=1, padx=(0, 10))
+
+                def accept():
+                    instance["workspace"] = workspace_var.get().strip()
+                    instance["parameters"] = {"path": path_var.get().strip()}
+                    self._mark_dirty()
+                    form.destroy()
+                    refresh()
+
+                buttons = ttk.Frame(form, padding=10)
+                buttons.grid(row=4, column=0, columnspan=2, sticky="e")
+                ttk.Button(buttons, text="Cancel", command=form.destroy).pack(side="left")
+                ttk.Button(buttons, text="Save", command=accept).pack(side="left", padx=6)
+
+            def remove_row():
+                index = selected_index()
+                if index is not None:
+                    del self.data["materializations"][index]
+                    self._mark_dirty()
+                    refresh()
+
+            ttk.Button(row_buttons, text="Add folder…", command=add_folder).pack(side="left")
+            ttk.Button(row_buttons, text="Paste many paths…", command=add_many).pack(side="left", padx=5)
+            ttk.Button(row_buttons, text="Edit", command=edit_row).pack(side="left", padx=(15, 5))
+            ttk.Button(row_buttons, text="Remove", command=remove_row).pack(side="left")
+            tree.bind("<Double-1>", lambda _event: edit_row())
+            dialog.bind("<Escape>", lambda _event: close())
+            dialog.protocol("WM_DELETE_WINDOW", close)
+            refresh()
+
+        def _template_manager(self):
+            dialog = tk.Toplevel(self)
+            dialog.title("Workspace Templates")
+            dialog.geometry("1050x700")
+            dialog.transient(self)
+            dialog.grab_set()
+            selected_template = [None]
+            template_loading = [False]
+
+            top = ttk.Frame(dialog, padding=10)
+            top.pack(fill="x")
+            ttk.Label(top, text="Workspace Templates", font=("TkDefaultFont", 12, "bold")).pack(side="left")
+            ttk.Button(top, text="Close", command=lambda: close_manager()).pack(side="right")
+            ttk.Label(
+                dialog,
+                text=(
+                    "1. Create/select a template.  2. Define parameters and use placeholders such as {{path}} "
+                    "in its applications.  3. Add materialized workspaces and provide concrete values."
+                ),
+                padding=(10, 0),
+            ).pack(fill="x")
+            body = ttk.Panedwindow(dialog, orient="horizontal")
+            body.pack(fill="both", expand=True, padx=10, pady=10)
+            left = ttk.Frame(body)
+            right = ttk.Frame(body)
+            body.add(left, weight=1)
+            body.add(right, weight=4)
+
+            template_list = tk.Listbox(left, exportselection=False)
+            template_list.pack(fill="both", expand=True)
+            left_buttons = ttk.Frame(left)
+            left_buttons.pack(fill="x", pady=(6, 0))
+
+            fields = ttk.LabelFrame(right, text="Template definition", padding=8)
+            fields.pack(fill="x")
+            template_name_var = tk.StringVar()
+            parameters_var = tk.StringVar()
+            template_output_var = tk.StringVar()
+            template_layout_var = tk.StringVar()
+            field_specs = (
+                ("Name", template_name_var, 0),
+                ("Parameters (comma-separated)", parameters_var, 1),
+                ("Output", template_output_var, 2),
+            )
+            for label, variable, column in field_specs:
+                ttk.Label(fields, text=label).grid(row=0, column=column, sticky="w", padx=(0 if column == 0 else 10, 0))
+                ttk.Entry(fields, textvariable=variable).grid(row=1, column=column, sticky="ew", padx=(0 if column == 0 else 10, 0))
+                fields.columnconfigure(column, weight=1)
+            ttk.Label(fields, text="Layout").grid(row=0, column=3, sticky="w", padx=(10, 0))
+            ttk.Combobox(fields, textvariable=template_layout_var, values=LAYOUTS, state="readonly", width=10).grid(row=1, column=3, padx=(10, 0))
+
+            apps_frame = ttk.LabelFrame(right, text="Template applications", padding=8)
+            apps_frame.pack(fill="both", expand=True, pady=(8, 0))
+            template_apps = ttk.Treeview(apps_frame, columns=("name", "type", "cwd"), show="headings", selectmode="browse", height=7)
+            for column, title, width in (("name", "Name", 160), ("type", "Application", 150), ("cwd", "Working directory", 400)):
+                template_apps.heading(column, text=title)
+                template_apps.column(column, width=width)
+            template_apps.pack(fill="both", expand=True)
+            app_buttons = ttk.Frame(apps_frame)
+            app_buttons.pack(fill="x", pady=(6, 0))
+
+            instances_frame = ttk.LabelFrame(right, text="Materialized workspaces", padding=8)
+            instances_frame.pack(fill="both", expand=True, pady=(8, 0))
+            instance_tree = ttk.Treeview(instances_frame, columns=("workspace", "parameters"), show="headings", selectmode="browse", height=5)
+            instance_tree.heading("workspace", text="Workspace")
+            instance_tree.heading("parameters", text="Parameter values")
+            instance_tree.column("workspace", width=100)
+            instance_tree.column("parameters", width=600)
+            instance_tree.pack(fill="both", expand=True)
+            instance_buttons = ttk.Frame(instances_frame)
+            instance_buttons.pack(fill="x", pady=(6, 0))
+
+            def current_template():
+                index = selected_template[0]
+                return self.data["templates"][index] if index is not None else None
+
+            def refresh_template_list(select=0):
+                template_list.delete(0, "end")
+                templates = self.data.setdefault("templates", [])
+                for template in templates:
+                    template_list.insert("end", template.get("name", "Unnamed template"))
+                if templates:
+                    select = min(select, len(templates) - 1)
+                    template_list.selection_set(select)
+                    select_template()
+                else:
+                    selected_template[0] = None
+                    refresh_details()
+
+            def refresh_details():
+                template_loading[0] = True
+                template = current_template()
+                enabled = template is not None
+                template_name_var.set(template.get("name", "") if template else "")
+                parameters_var.set(", ".join(template.get("parameters", [])) if template else "")
+                blueprint = template.get("workspace", {}) if template else {}
+                template_output_var.set(blueprint.get("output", "primary") if template else "")
+                template_layout_var.set(blueprint.get("layout", "none") if template else "")
+                template_apps.delete(*template_apps.get_children())
+                if template:
+                    for index, app in enumerate(blueprint.get("applications", [])):
+                        template_apps.insert("", "end", iid=str(index), values=(app.get("name", ""), app_preset_name(app), app.get("working_directory", "")))
+                refresh_instances()
+                for widget in (template_apps, instance_tree):
+                    widget.configure(selectmode="browse" if enabled else "none")
+                template_loading[0] = False
+
+            def refresh_instances():
+                instance_tree.delete(*instance_tree.get_children())
+                template = current_template()
+                if not template:
+                    return
+                for index, instance in enumerate(self.data.setdefault("materializations", [])):
+                    if instance.get("template") != template.get("name"):
+                        continue
+                    values = ", ".join(f"{key}={value}" for key, value in instance.get("parameters", {}).items())
+                    instance_tree.insert("", "end", iid=str(index), values=(instance.get("workspace", ""), values))
+
+            def select_template(_event=None):
+                selection = template_list.curselection()
+                selected_template[0] = selection[0] if selection else None
+                refresh_details()
+
+            def template_fields_changed(*_args):
+                if template_loading[0]:
+                    return
+                template = current_template()
+                if not template:
+                    return
+                old_name = template.get("name", "")
+                new_name = template_name_var.get().strip()
+                template["name"] = new_name
+                template["parameters"] = [item.strip() for item in parameters_var.get().split(",") if item.strip()]
+                blueprint = template.setdefault("workspace", {})
+                blueprint["output"] = template_output_var.get().strip()
+                blueprint["layout"] = template_layout_var.get()
+                if new_name != old_name:
+                    for instance in self.data.get("materializations", []):
+                        if instance.get("template") == old_name:
+                            instance["template"] = new_name
+                    index = selected_template[0]
+                    template_list.delete(index)
+                    template_list.insert(index, new_name or "Unnamed template")
+                    template_list.selection_set(index)
+                self._mark_dirty()
+                refresh_instances()
+
+            for variable in (template_name_var, parameters_var, template_output_var, template_layout_var):
+                variable.trace_add("write", template_fields_changed)
+            template_list.bind("<<ListboxSelect>>", select_template)
+
+            def add_template():
+                name = simpledialog.askstring("New template", "Template name:", parent=dialog)
+                if not name or not name.strip():
+                    return
+                self.data.setdefault("templates", []).append({
+                    "name": name.strip(),
+                    "parameters": ["path"],
+                    "workspace": {"output": "primary", "layout": "grid", "applications": []},
+                })
+                self._mark_dirty()
+                refresh_template_list(len(self.data["templates"]) - 1)
+
+            def remove_template():
+                template = current_template()
+                if not template:
+                    return
+                if any(item.get("template") == template.get("name") for item in self.data.get("materializations", [])):
+                    messagebox.showerror("Template in use", "Remove its materialized workspaces first.", parent=dialog)
+                    return
+                if messagebox.askyesno("Remove template", f"Remove {template['name']}?", parent=dialog):
+                    del self.data["templates"][selected_template[0]]
+                    self._mark_dirty()
+                    refresh_template_list(0)
+
+            def selected_app_index():
+                selection = template_apps.selection()
+                return int(selection[0]) if selection else None
+
+            def add_template_app():
+                template = current_template()
+                if not template:
+                    return
+                app = self._app_dialog(parent=dialog)
+                if app:
+                    template["workspace"].setdefault("applications", []).append(app)
+                    self._mark_dirty()
+                    refresh_details()
+
+            def add_template_terminals():
+                template = current_template()
+                if not template:
+                    return
+                form = tk.Toplevel(dialog)
+                form.title("Add terminals")
+                form.transient(dialog)
+                form.grab_set()
+                count_var = tk.IntVar(value=4)
+                directory_var = tk.StringVar(value="{{path}}" if "path" in template.get("parameters", []) else "$HOME/lelloprojects")
+                ttk.Label(form, text="How many terminals?").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 0))
+                ttk.Spinbox(form, from_=1, to=12, textvariable=count_var, width=8).grid(row=1, column=0, sticky="w", padx=10)
+                ttk.Label(form, text="Working directory").grid(row=2, column=0, sticky="w", padx=10, pady=(8, 0))
+                ttk.Entry(form, textvariable=directory_var, width=55).grid(row=3, column=0, sticky="ew", padx=10)
+
+                def accept():
+                    try:
+                        count = int(count_var.get())
+                    except (ValueError, tk.TclError):
+                        return
+                    apps = template["workspace"].setdefault("applications", [])
+                    start = len(apps)
+                    for offset in range(count):
+                        terminal = copy.deepcopy(APP_PRESETS["Terminal"])
+                        terminal["name"] = f"Terminal {start + offset + 1}"
+                        terminal["working_directory"] = directory_var.get().strip()
+                        apps.append(terminal)
+                    self._mark_dirty()
+                    form.destroy()
+                    refresh_details()
+
+                buttons = ttk.Frame(form, padding=10)
+                buttons.grid(row=4, column=0, sticky="e")
+                ttk.Button(buttons, text="Cancel", command=form.destroy).pack(side="left")
+                ttk.Button(buttons, text="Add", command=accept).pack(side="left", padx=6)
+
+            def edit_template_app():
+                template = current_template()
+                index = selected_app_index()
+                if not template or index is None:
+                    return
+                apps = template["workspace"].setdefault("applications", [])
+                app = self._app_dialog(apps[index], parent=dialog)
+                if app:
+                    apps[index] = app
+                    self._mark_dirty()
+                    refresh_details()
+
+            def remove_template_app():
+                template = current_template()
+                index = selected_app_index()
+                if template and index is not None:
+                    del template["workspace"]["applications"][index]
+                    self._mark_dirty()
+                    refresh_details()
+
+            def move_template_app(amount):
+                template = current_template()
+                index = selected_app_index()
+                if not template or index is None:
+                    return
+                apps = template["workspace"].setdefault("applications", [])
+                destination = index + amount
+                if 0 <= destination < len(apps):
+                    apps[index], apps[destination] = apps[destination], apps[index]
+                    self._mark_dirty()
+                    refresh_details()
+                    template_apps.selection_set(str(destination))
+
+            def compose_template_layout():
+                template = current_template()
+                if template:
+                    self._compose_layout(template["workspace"], parent=dialog, on_save=refresh_details)
+
+            def materialization_dialog(existing_index=None):
+                template = current_template()
+                if not template:
+                    return
+                existing = self.data["materializations"][existing_index] if existing_index is not None else {}
+                form = tk.Toplevel(dialog)
+                form.title("Materialized workspace")
+                form.transient(dialog)
+                form.grab_set()
+                workspace_var = tk.StringVar(value=existing.get("workspace", ""))
+                ttk.Label(form, text="Workspace name").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 0))
+                ttk.Entry(form, textvariable=workspace_var, width=55).grid(row=1, column=0, sticky="ew", padx=10)
+                parameter_vars = {}
+                row = 2
+                for parameter in template.get("parameters", []):
+                    variable = tk.StringVar(value=existing.get("parameters", {}).get(parameter, ""))
+                    parameter_vars[parameter] = variable
+                    ttk.Label(form, text=parameter).grid(row=row, column=0, sticky="w", padx=10, pady=(8, 0))
+                    ttk.Entry(form, textvariable=variable, width=55).grid(row=row + 1, column=0, sticky="ew", padx=10)
+                    row += 2
+
+                def accept():
+                    workspace_name = workspace_var.get().strip()
+                    if not workspace_name:
+                        messagebox.showerror("Missing workspace", "Workspace name is required.", parent=form)
+                        return
+                    result = {
+                        "template": template["name"],
+                        "workspace": workspace_name,
+                        "parameters": {key: variable.get().strip() for key, variable in parameter_vars.items()},
+                    }
+                    if existing_index is None:
+                        self.data.setdefault("materializations", []).append(result)
+                    else:
+                        self.data["materializations"][existing_index] = result
+                    self._mark_dirty()
+                    form.destroy()
+                    refresh_instances()
+
+                buttons = ttk.Frame(form, padding=10)
+                buttons.grid(row=row, column=0, sticky="e")
+                ttk.Button(buttons, text="Cancel", command=form.destroy).pack(side="left")
+                ttk.Button(buttons, text="Save", command=accept).pack(side="left", padx=(6, 0))
+                form.bind("<Escape>", lambda _event: form.destroy())
+
+            def selected_instance_index():
+                selection = instance_tree.selection()
+                return int(selection[0]) if selection else None
+
+            def remove_instance():
+                index = selected_instance_index()
+                if index is not None:
+                    del self.data["materializations"][index]
+                    self._mark_dirty()
+                    refresh_instances()
+
+            def close_manager():
+                dialog.destroy()
+                self._refresh_workspaces(0)
+
+            ttk.Button(left_buttons, text="New", command=add_template).pack(side="left")
+            ttk.Button(left_buttons, text="Remove", command=remove_template).pack(side="left", padx=5)
+            ttk.Button(app_buttons, text="Add terminals…", command=add_template_terminals).pack(side="left")
+            ttk.Button(app_buttons, text="Add application…", command=add_template_app).pack(side="left", padx=5)
+            ttk.Button(app_buttons, text="Edit", command=edit_template_app).pack(side="left")
+            ttk.Button(app_buttons, text="Remove", command=remove_template_app).pack(side="left")
+            ttk.Button(app_buttons, text="Move up", command=lambda: move_template_app(-1)).pack(side="left", padx=(15, 5))
+            ttk.Button(app_buttons, text="Move down", command=lambda: move_template_app(1)).pack(side="left")
+            ttk.Button(app_buttons, text="Compose layout…", command=compose_template_layout).pack(side="right")
+            ttk.Button(instance_buttons, text="Add workspace", command=lambda: materialization_dialog()).pack(side="left")
+            ttk.Button(instance_buttons, text="Edit", command=lambda: materialization_dialog(selected_instance_index()) if selected_instance_index() is not None else None).pack(side="left", padx=5)
+            ttk.Button(instance_buttons, text="Remove", command=remove_instance).pack(side="left")
+            template_apps.bind("<Double-1>", lambda _event: edit_template_app())
+            instance_tree.bind("<Double-1>", lambda _event: materialization_dialog(selected_instance_index()) if selected_instance_index() is not None else None)
+            dialog.bind("<Escape>", lambda _event: close_manager())
+            dialog.protocol("WM_DELETE_WINDOW", close_manager)
+            refresh_template_list(0)
+
+        def _refresh_apps(self):
+            self.app_tree.delete(*self.app_tree.get_children())
+            if self.current_workspace is None:
+                return
+            for index, app in enumerate(self.current_workspace.get("applications", [])):
+                self.app_tree.insert("", "end", iid=str(index), values=(app.get("name", ""), app_preset_name(app), app.get("working_directory", ""), "yes" if app.get("launch", True) else "no", "yes" if app.get("assign", False) else "no"))
+
+        def _app_dialog(self, existing=None, parent=None):
+            owner = parent or self
+            dialog = tk.Toplevel(self)
+            dialog.title("Application")
+            dialog.transient(owner)
+            dialog.grab_set()
+            app = copy.deepcopy(existing) if existing is not None else {
+                **copy.deepcopy(APP_PRESETS["Terminal"]),
+                "working_directory": "$HOME/lelloprojects",
+            }
+            variables = {key: tk.StringVar(value=app.get(key, "")) for key in ("name", "command", "working_directory", "match_field", "match")}
+            launch_var = tk.BooleanVar(value=app.get("launch", True))
+            assign_var = tk.BooleanVar(value=app.get("assign", False))
+            inferred = app_preset_name(app)
+            preset_var = tk.StringVar(value=inferred)
+            ttk.Label(dialog, text="Application").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 0))
+            preset_combo = ttk.Combobox(dialog, textvariable=preset_var, values=tuple(APP_PRESETS) + ("Custom",), state="readonly", width=55)
+            preset_combo.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10)
+            ttk.Label(dialog, text="Name").grid(row=2, column=0, sticky="w", padx=10, pady=(8, 0))
+            ttk.Entry(dialog, textvariable=variables["name"], width=58).grid(row=3, column=0, columnspan=2, sticky="ew", padx=10)
+            ttk.Label(dialog, text="Working directory (optional)").grid(row=4, column=0, sticky="w", padx=10, pady=(8, 0))
+            ttk.Entry(dialog, textvariable=variables["working_directory"], width=58).grid(row=5, column=0, columnspan=2, sticky="ew", padx=10)
+            ttk.Checkbutton(dialog, text="Launch during setup", variable=launch_var).grid(row=6, column=0, sticky="w", padx=10, pady=8)
+            ttk.Checkbutton(dialog, text="Always assign matching windows here", variable=assign_var).grid(row=6, column=1, sticky="w", padx=10, pady=8)
+
+            advanced = ttk.LabelFrame(dialog, text="Advanced window matching", padding=8)
+            ttk.Label(advanced, text="Command").grid(row=0, column=0, sticky="w")
+            ttk.Entry(advanced, textvariable=variables["command"], width=58).grid(row=1, column=0, columnspan=2, sticky="ew")
+            ttk.Label(advanced, text="Match field").grid(row=2, column=0, sticky="w", pady=(8, 0))
+            ttk.Label(advanced, text="Match expression").grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(8, 0))
+            ttk.Combobox(advanced, textvariable=variables["match_field"], values=MATCH_FIELDS, state="readonly").grid(row=3, column=0, sticky="ew")
+            ttk.Entry(advanced, textvariable=variables["match"]).grid(row=3, column=1, sticky="ew", padx=(8, 0))
+            advanced.columnconfigure(0, weight=1)
+            advanced.columnconfigure(1, weight=2)
+            advanced_visible = [inferred == "Custom"]
+
+            def toggle_advanced():
+                advanced_visible[0] = not advanced_visible[0]
+                if advanced_visible[0]:
+                    advanced.grid(row=8, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 8))
+                    advanced_button.configure(text="Hide advanced")
+                else:
+                    advanced.grid_remove()
+                    advanced_button.configure(text="Advanced…")
+
+            advanced_button = ttk.Button(dialog, text="Hide advanced" if advanced_visible[0] else "Advanced…", command=toggle_advanced)
+            advanced_button.grid(row=7, column=0, sticky="w", padx=10, pady=(0, 8))
+            if advanced_visible[0]:
+                advanced.grid(row=8, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 8))
+
+            def apply_preset(_event=None):
+                preset = APP_PRESETS.get(preset_var.get())
+                if preset is None:
+                    if not advanced_visible[0]:
+                        toggle_advanced()
+                    return
+                for key in ("name", "command", "match_field", "match"):
+                    variables[key].set(preset.get(key, ""))
+                if preset.get("working_directory") and not variables["working_directory"].get():
+                    variables["working_directory"].set(preset["working_directory"])
+                if preset_var.get() == "Terminal" and not variables["working_directory"].get():
+                    variables["working_directory"].set("$HOME/lelloprojects")
+                launch_var.set(preset.get("launch", True))
+                assign_var.set(preset.get("assign", False))
+
+            preset_combo.bind("<<ComboboxSelected>>", apply_preset)
+            result: list[dict[str, Any]] = []
+            def accept():
+                updated = {key: variable.get().strip() for key, variable in variables.items()}
+                updated["launch"] = launch_var.get()
+                updated["assign"] = assign_var.get()
+                result.append(updated)
+                dialog.destroy()
+            buttons = ttk.Frame(dialog, padding=10)
+            buttons.grid(row=9, column=0, columnspan=2, sticky="e")
+            ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="left")
+            ttk.Button(buttons, text="Save", command=accept).pack(side="left", padx=(6, 0))
+            dialog.bind("<Escape>", lambda _event: dialog.destroy())
+            dialog.columnconfigure(0, weight=1)
+            dialog.columnconfigure(1, weight=1)
+            dialog.wait_window()
+            return result[0] if result else None
+
+        def _add_app(self):
+            if self.selected_index is None:
+                return
+            app = self._app_dialog()
+            if app:
+                self.data["workspaces"][self.selected_index].setdefault("applications", []).append(app)
+                self.current_workspace = self.data["workspaces"][self.selected_index]
+                self._mark_dirty()
+                self._refresh_apps()
+
+        def _add_common_app(self):
+            if self.selected_index is None:
+                return
+            dialog = tk.Toplevel(self)
+            dialog.title("Add common application")
+            dialog.transient(self)
+            dialog.grab_set()
+            def choose(name, app):
+                selected = copy.deepcopy(app)
+                if name == "Terminal":
+                    selected["working_directory"] = "$HOME/lelloprojects"
+                self.data["workspaces"][self.selected_index].setdefault("applications", []).append(selected)
+                self.current_workspace = self.data["workspaces"][self.selected_index]
+                self._mark_dirty()
+                dialog.destroy()
+                self._refresh_apps()
+
+            ttk.Label(dialog, text="Choose an application preset", padding=10).pack(anchor="w")
+            for name, app in APP_PRESETS.items():
+                ttk.Button(dialog, text=name, command=lambda label=name, value=app: choose(label, value)).pack(fill="x", padx=10, pady=3)
+            ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(anchor="e", padx=10, pady=10)
+
+        def _chosen_app_index(self):
+            selection = self.app_tree.selection()
+            return int(selection[0]) if selection else None
+
+        def _edit_app(self):
+            index = self._chosen_app_index()
+            if index is None or self.selected_index is None:
+                return
+            apps = self.data["workspaces"][self.selected_index]["applications"]
+            updated = self._app_dialog(apps[index])
+            if updated:
+                apps[index] = updated
+                self._mark_dirty()
+                self._refresh_apps()
+
+        def _remove_app(self):
+            index = self._chosen_app_index()
+            if index is not None and self.selected_index is not None:
+                del self.data["workspaces"][self.selected_index]["applications"][index]
+                self._mark_dirty()
+                self._refresh_apps()
+
+        def _move_app(self, amount):
+            index = self._chosen_app_index()
+            if index is None or self.selected_index is None:
+                return
+            apps = self.data["workspaces"][self.selected_index]["applications"]
+            destination = index + amount
+            if 0 <= destination < len(apps):
+                apps[index], apps[destination] = apps[destination], apps[index]
+                self._mark_dirty()
+                self._refresh_apps()
+                self.app_tree.selection_set(str(destination))
+
+        def _save(self, notify=True):
+            if self.selected_index is not None:
+                self._store_workspace()
+            self._commit_settings()
+            try:
+                backup_path = save_config(self.data)
+            except (ConfigError, OSError) as exc:
+                messagebox.showerror("Cannot save", str(exc), parent=self)
+                return False
+            self._set_dirty(False)
+            if notify:
+                backup_note = f"\nBackup: {backup_path}" if backup_path else ""
+                messagebox.showinfo("Saved", f"Saved {CONFIG_PATH}{backup_note}", parent=self)
+            return True
+
+        def _reload(self):
+            if self.dirty and not messagebox.askyesno(
+                "Discard changes?", "Reloading will discard all unsaved changes. Continue?", parent=self
+            ):
+                return
+            try:
+                reloaded = load_config()
+            except (ConfigError, OSError) as exc:
+                messagebox.showerror("Cannot reload", str(exc), parent=self)
+                return
+            self.loading = True
+            self.data = copy.deepcopy(reloaded)
+            preferred = self.data.setdefault("preferred_outputs", {})
+            self.primary_var.set(preferred.get("primary", ""))
+            self.secondary_var.set(preferred.get("secondary", ""))
+            self.startup_var.set(self.data.get("startup_workspace", ""))
+            self.selected_index = None
+            self.selected_ref = None
+            self.current_workspace = None
+            self._refresh_workspaces(0)
+            self.loading = False
+            self._set_dirty(False)
+
+        def _apply(self):
+            if not self._save(notify=False):
+                return
+            try:
+                setup_all(materialize_config(self.data))
+            except Exception as exc:
+                messagebox.showerror("Apply failed", str(exc), parent=self)
+            else:
+                messagebox.showinfo("Applied", "All configured workspaces are ready.", parent=self)
+
+        def _reset_selected(self):
+            if self.selected_name is None or not self._save(notify=False):
+                return
+            name = self.selected_name
+            if not messagebox.askyesno("Reset workspace", f"Close everything on workspace {name} and recreate it?", parent=self):
+                return
+            try:
+                reset_workspace(materialize_config(self.data), name)
+            except Exception as exc:
+                messagebox.showerror("Reset failed", str(exc), parent=self)
+
+    Editor().mainloop()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--setup", action="store_true", help="set up all configured workspaces")
+    action.add_argument("--workspace", metavar="NAME", help="set up one workspace")
+    action.add_argument("--reset-current", action="store_true", help="clear and recreate the focused workspace")
+    action.add_argument("--reset", metavar="NAME", help="clear and recreate a named workspace")
+    action.add_argument("--validate", action="store_true", help="validate the configuration and exit")
+    args = parser.parse_args()
+    try:
+        config = load_config()
+        effective_config = materialize_config(config)
+        if args.setup:
+            setup_all(effective_config)
+        elif args.workspace:
+            write_generated_i3_config(effective_config)
+            setup_workspace(effective_config, find_workspace(effective_config, args.workspace))
+        elif args.reset_current:
+            reset_workspace(effective_config)
+        elif args.reset:
+            reset_workspace(effective_config, args.reset)
+        elif args.validate:
+            print(f"Valid: {CONFIG_PATH}")
+        else:
+            run_gui(config)
+    except (ConfigError, FileNotFoundError, subprocess.CalledProcessError) as exc:
+        print(f"workspace-configurator: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

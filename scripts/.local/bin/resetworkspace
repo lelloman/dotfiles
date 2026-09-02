@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# The launching terminal is normally one of the windows being closed. Run the
+# worker in a new session so it survives that terminal and can finish rebuilding.
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}"
+mkdir -p "$state_dir"
+focused_workspace="$(i3-msg -t get_workspaces | jq -er '.[] | select(.focused) | .name')" || exit 1
+setsid -f "$HOME/.local/bin/workspace-configurator" --reset "$focused_workspace" "$@" \
+    </dev/null >>"$state_dir/i3-workspace-reset.log" 2>&1

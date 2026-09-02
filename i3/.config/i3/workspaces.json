@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "terminal": "gnome-terminal",
+  "preferred_outputs": {
+    "primary": "HDMI-0",
+    "secondary": "DP-0"
+  },
+  "startup_workspace": "1",
+  "workspaces": [
+    {
+      "name": "1",
+      "output": "primary",
+      "layout": "none",
+      "applications": [
+        {
+          "name": "Chromium",
+          "command": "chromium",
+          "match_field": "class",
+          "match": "^Chromium$",
+          "launch": true,
+          "assign": true
+        }
+      ]
+    },
+    {
+      "name": "2",
+      "output": "primary",
+      "layout": "none",
+      "applications": [
+        {
+          "name": "Visual Studio Code",
+          "command": "code",
+          "match_field": "class",
+          "match": "^Code$",
+          "launch": false,
+          "assign": true
+        }
+      ]
+    },
+    {
+      "name": "4",
+      "output": "primary",
+      "layout": "none",
+      "applications": [
+        {
+          "name": "Ronomepo",
+          "command": "cargo run --release -- /home/lelloman/lelloprojects",
+          "working_directory": "$HOME/lelloprojects/ronomepo",
+          "match_field": "title",
+          "match": "Ronomepo",
+          "launch": true,
+          "assign": false
+        }
+      ]
+    },
+    {
+      "name": "5",
+      "output": "primary",
+      "layout": "none",
+      "applications": [
+        {
+          "name": "Android Studio",
+          "command": "studio",
+          "match_field": "class",
+          "match": "^jetbrains-studio$",
+          "launch": false,
+          "assign": true
+        }
+      ]
+    }
+  ],
+  "templates": [
+    {
+      "name": "four-terminals",
+      "parameters": ["path"],
+      "workspace": {
+        "output": "secondary",
+        "layout": "grid",
+        "applications": [
+          { "name": "Terminal 1", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false },
+          { "name": "Terminal 2", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false },
+          { "name": "Terminal 3", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false },
+          { "name": "Terminal 4", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false }
+        ]
+      }
+    }
+  ],
+  "materializations": [
+    { "template": "four-terminals", "workspace": "31", "parameters": { "path": "$HOME/lelloprojects" } },
+    { "template": "four-terminals", "workspace": "32", "parameters": { "path": "$HOME/lelloprojects" } },
+    { "template": "four-terminals", "workspace": "33", "parameters": { "path": "$HOME/lelloprojects" } },
+    { "template": "four-terminals", "workspace": "34", "parameters": { "path": "$HOME/lelloprojects" } },
+    { "template": "four-terminals", "workspace": "35", "parameters": { "path": "$HOME/lelloprojects" } }
+  ]
+}
