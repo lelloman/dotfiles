@@ -26,6 +26,7 @@ ASSIGN_CONF = Path("~/.config/i3/workspace-assigns.conf").expanduser()
 STATE_HOME = Path(os.environ.get("XDG_STATE_HOME", "~/.local/state")).expanduser()
 BACKUP_DIR = Path(os.environ.get("I3_WORKSPACES_BACKUP_DIR", str(STATE_HOME / "i3-workspace-config/backups"))).expanduser()
 BACKUP_COUNT = 20
+PROJECTS_ROOT = Path("/home/lelloman/lelloprojects")
 LAYOUTS = ("none", "splith", "splitv", "tabbed", "stacked", "grid", "custom")
 MATCH_FIELDS = ("class", "instance", "title", "window_role", "window_type")
 APP_PRESETS = {
@@ -427,6 +428,28 @@ def find_workspace(config: dict[str, Any], name: str) -> dict[str, Any]:
         if str(workspace["name"]) == name:
             return workspace
     raise ConfigError(f"Workspace {name!r} is not in {CONFIG_PATH}")
+
+
+def resolve_project_path(value: str, projects_root: Path = PROJECTS_ROOT) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = projects_root / path
+    return path.resolve()
+
+
+def project_workspace(config: dict[str, Any], value: str) -> dict[str, Any]:
+    path = resolve_project_path(value)
+    if not path.is_dir():
+        raise ConfigError(f"Project directory does not exist: {path}")
+    template = next(
+        (item for item in config.get("templates", []) if item.get("name") == "project-terminals"),
+        None,
+    )
+    if template is None:
+        raise ConfigError("Template 'project-terminals' is not configured")
+    workspace = substitute(template["workspace"], {"path": str(path)})
+    workspace["name"] = path.name
+    return workspace
 
 
 def setup_workspace(config: dict[str, Any], workspace: dict[str, Any], force_layout: bool = False) -> None:
@@ -1801,6 +1824,7 @@ def main() -> int:
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--setup", action="store_true", help="set up all configured workspaces")
     action.add_argument("--workspace", metavar="NAME", help="set up one workspace")
+    action.add_argument("--project", metavar="PATH", help="create an ephemeral terminal workspace for a project")
     action.add_argument("--reset-current", action="store_true", help="clear and recreate the focused workspace")
     action.add_argument("--reset", metavar="NAME", help="clear and recreate a named workspace")
     action.add_argument("--validate", action="store_true", help="validate the configuration and exit")
@@ -1813,6 +1837,8 @@ def main() -> int:
         elif args.workspace:
             write_generated_i3_config(effective_config)
             setup_workspace(effective_config, find_workspace(effective_config, args.workspace))
+        elif args.project:
+            setup_workspace(effective_config, project_workspace(config, args.project))
         elif args.reset_current:
             reset_workspace(effective_config)
         elif args.reset:

@@ -110,6 +110,18 @@ refuses to act when the focused workspace is not configured. The detached
 reset worker logs to `~/.local/state/i3-workspace-reset.log`, since it also
 closes the terminal from which it was invoked.
 
+To create the same three-terminal layout without saving another workspace in
+the configuration, pass a project path to `projectworkspace`:
+
+```bash
+projectworkspace rns-rs
+projectworkspace /tmp/another-project
+```
+
+A relative path is resolved below `/home/lelloman/lelloprojects`; an absolute
+path is used directly. The workspace is named after the directory and exists
+only in the running i3 session.
+
 ---
 
 ### sway and waybar
@@ -226,6 +238,7 @@ Custom scripts.
 - `setupworkspaces` - i3 workspace setup script
 - `configure-workspaces` - GUI for workspace, display, layout, and template setup
 - `resetworkspace` - clear and recreate the focused i3 workspace
+- `projectworkspace PATH` - create an ephemeral three-terminal project workspace
 - `workspace-configurator` - shared configuration/setup engine
 - `confmonitor-sway` - Sway output layout setup script
 - `sway-session-startup` - ordered Sway startup script

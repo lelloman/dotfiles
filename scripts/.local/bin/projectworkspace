@@ -1,0 +1,8 @@
+#!/bin/sh
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: projectworkspace PATH" >&2
+    exit 2
+fi
+
+exec "$HOME/.local/bin/workspace-configurator" --project "$1"

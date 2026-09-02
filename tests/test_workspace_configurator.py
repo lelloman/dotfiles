@@ -91,6 +91,29 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
         self.assertEqual("splitv", layout["nodes"][1]["layout"])
         self.assertEqual(3, workspace_configurator.layout_leaf_count(tree))
 
+    def test_relative_project_path_uses_projects_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "some-project"
+            project.mkdir()
+
+            path = workspace_configurator.resolve_project_path("some-project", root)
+            workspace = workspace_configurator.project_workspace(self.config, str(project))
+
+        self.assertEqual(project, path)
+        self.assertEqual("some-project", workspace["name"])
+        self.assertEqual(str(project), workspace["applications"][0]["working_directory"])
+        self.assertEqual(3, len(workspace["applications"]))
+
+    def test_absolute_project_path_is_unchanged(self):
+        path = workspace_configurator.resolve_project_path("/tmp/a-project", Path("/ignored"))
+
+        self.assertEqual(Path("/tmp/a-project"), path)
+
+    def test_project_workspace_requires_existing_directory(self):
+        with self.assertRaisesRegex(workspace_configurator.ConfigError, "does not exist"):
+            workspace_configurator.project_workspace(self.config, "/missing/project-directory")
+
     @mock.patch.object(workspace_configurator.subprocess, "Popen")
     def test_terminal_launch_drops_dead_inherited_screen(self, popen):
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
