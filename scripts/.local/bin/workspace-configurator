@@ -408,7 +408,18 @@ def launch_app(app: dict[str, Any]) -> None:
     cwd = os.path.expandvars(os.path.expanduser(working_directory)) if working_directory else None
     if cwd and not Path(cwd).is_dir():
         raise ConfigError(f"Working directory does not exist: {cwd}")
-    subprocess.Popen(command, cwd=cwd, start_new_session=True)
+    environment = None
+    if Path(command[0]).name == "gnome-terminal":
+        # A reset is commonly launched from a GNOME Terminal that it then
+        # closes. Inheriting its screen object makes new terminal clients try
+        # to attach to a dead D-Bus path, producing swallowed black windows.
+        environment = os.environ.copy()
+        environment.pop("GNOME_TERMINAL_SCREEN", None)
+        environment.pop("GNOME_TERMINAL_SERVICE", None)
+        if cwd:
+            command.extend(["--working-directory", cwd])
+            cwd = None
+    subprocess.Popen(command, cwd=cwd, env=environment, start_new_session=True)
 
 
 def find_workspace(config: dict[str, Any], name: str) -> dict[str, Any]:

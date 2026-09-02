@@ -5,5 +5,8 @@
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}"
 mkdir -p "$state_dir"
 focused_workspace="$(i3-msg -t get_workspaces | jq -er '.[] | select(.focused) | .name')" || exit 1
+# Do not pass the launching terminal's soon-to-be-dead D-Bus screen to newly
+# created GNOME Terminal windows.
+unset GNOME_TERMINAL_SCREEN GNOME_TERMINAL_SERVICE
 setsid -f "$HOME/.local/bin/workspace-configurator" --reset "$focused_workspace" "$@" \
     </dev/null >>"$state_dir/i3-workspace-reset.log" 2>&1

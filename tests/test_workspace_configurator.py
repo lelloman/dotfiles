@@ -2,9 +2,11 @@ import copy
 import importlib.machinery
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts/.local/bin/workspace-configurator"
@@ -86,6 +88,24 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
         self.assertEqual("splith", layout["layout"])
         self.assertEqual("splitv", layout["nodes"][1]["layout"])
         self.assertEqual(3, workspace_configurator.layout_leaf_count(tree))
+
+    @mock.patch.object(workspace_configurator.subprocess, "Popen")
+    def test_terminal_launch_drops_dead_inherited_screen(self, popen):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
+            os.environ,
+            {"GNOME_TERMINAL_SCREEN": "/dead/screen", "GNOME_TERMINAL_SERVICE": ":dead"},
+        ):
+            app = copy.deepcopy(workspace_configurator.APP_PRESETS["Terminal"])
+            app["working_directory"] = directory
+
+            workspace_configurator.launch_app(app)
+
+        command = popen.call_args.args[0]
+        options = popen.call_args.kwargs
+        self.assertEqual(["gnome-terminal", "--working-directory", directory], command)
+        self.assertNotIn("GNOME_TERMINAL_SCREEN", options["env"])
+        self.assertNotIn("GNOME_TERMINAL_SERVICE", options["env"])
+        self.assertIsNone(options["cwd"])
 
     def test_save_keeps_latest_twenty_backups(self):
         with tempfile.TemporaryDirectory() as directory:
