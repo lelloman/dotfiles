@@ -92,7 +92,7 @@ Before replacing the configuration, every save creates a timestamped backup in
 `~/.local/state/i3-workspace-config/backups/`. The newest 20 backups are kept.
 
 Templates use `{{parameter}}` in any string field. For example, the included
-`four-terminals` template uses `{{path}}` as all four working directories. In
+`project-terminals` template uses `{{path}}` as all three working directories. In
 the template editor, define the template's parameters, layout, and applications
 directly. Then add materialized workspaces beneath it and provide a concrete
 value for each parameter. Materialized workspaces appear in the main list with

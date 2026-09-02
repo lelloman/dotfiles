@@ -71,25 +71,39 @@
   ],
   "templates": [
     {
-      "name": "four-terminals",
+      "name": "project-terminals",
       "parameters": ["path"],
       "workspace": {
         "output": "secondary",
-        "layout": "grid",
+        "layout": "custom",
+        "layout_tree": {
+          "type": "split",
+          "orientation": "horizontal",
+          "children": [
+            { "type": "app" },
+            {
+              "type": "split",
+              "orientation": "vertical",
+              "children": [
+                { "type": "app" },
+                { "type": "app" }
+              ]
+            }
+          ]
+        },
         "applications": [
           { "name": "Terminal 1", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false },
           { "name": "Terminal 2", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false },
-          { "name": "Terminal 3", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false },
-          { "name": "Terminal 4", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false }
+          { "name": "Terminal 3", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false }
         ]
       }
     }
   ],
   "materializations": [
-    { "template": "four-terminals", "workspace": "31", "parameters": { "path": "$HOME/lelloprojects" } },
-    { "template": "four-terminals", "workspace": "32", "parameters": { "path": "$HOME/lelloprojects" } },
-    { "template": "four-terminals", "workspace": "33", "parameters": { "path": "$HOME/lelloprojects" } },
-    { "template": "four-terminals", "workspace": "34", "parameters": { "path": "$HOME/lelloprojects" } },
-    { "template": "four-terminals", "workspace": "35", "parameters": { "path": "$HOME/lelloprojects" } }
+    { "template": "project-terminals", "workspace": "rns", "parameters": { "path": "/home/lelloman/lelloprojects/rns-rs" } },
+    { "template": "project-terminals", "workspace": "crumbles", "parameters": { "path": "/home/lelloman/lelloprojects/crumbles" } },
+    { "template": "project-terminals", "workspace": "homelab", "parameters": { "path": "/home/lelloman/lelloprojects/homelab" } },
+    { "template": "project-terminals", "workspace": "34", "parameters": { "path": "$HOME/lelloprojects" } },
+    { "template": "project-terminals", "workspace": "35", "parameters": { "path": "$HOME/lelloprojects" } }
   ]
 }

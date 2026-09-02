@@ -28,16 +28,16 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
     def test_template_materializes_each_path_independently(self):
         config = copy.deepcopy(self.config)
         config["materializations"] = [
-            {"template": "four-terminals", "workspace": "31", "parameters": {"path": "/projects/one"}},
-            {"template": "four-terminals", "workspace": "32", "parameters": {"path": "/projects/two"}},
+            {"template": "project-terminals", "workspace": "31", "parameters": {"path": "/projects/one"}},
+            {"template": "project-terminals", "workspace": "32", "parameters": {"path": "/projects/two"}},
         ]
         expanded = workspace_configurator.materialize_config(config)
         workspaces = {workspace["name"]: workspace for workspace in expanded["workspaces"]}
 
-        self.assertEqual("grid", workspaces["31"]["layout"])
-        self.assertEqual(4, len(workspaces["31"]["applications"]))
+        self.assertEqual("custom", workspaces["31"]["layout"])
+        self.assertEqual(3, len(workspaces["31"]["applications"]))
         self.assertEqual("/projects/one", workspaces["31"]["applications"][0]["working_directory"])
-        self.assertEqual("/projects/two", workspaces["32"]["applications"][3]["working_directory"])
+        self.assertEqual("/projects/two", workspaces["32"]["applications"][2]["working_directory"])
 
     def test_missing_template_parameter_is_rejected(self):
         broken = copy.deepcopy(self.config)
@@ -46,17 +46,19 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
         with self.assertRaises(workspace_configurator.ConfigError):
             workspace_configurator.validate_config(broken)
 
-    def test_grid_layout_contains_one_placeholder_per_application(self):
+    def test_layout_contains_one_placeholder_per_application(self):
         expanded = workspace_configurator.materialize_config(self.config)
-        workspace = next(item for item in expanded["workspaces"] if item["name"] == "31")
-        layout = workspace_configurator.build_layout("grid", workspace["applications"])
+        workspace = next(item for item in expanded["workspaces"] if item["name"] == "rns")
+        layout = workspace_configurator.build_layout(
+            workspace["layout"], workspace["applications"], workspace["layout_tree"]
+        )
         placeholders = [
             node
             for node in workspace_configurator.descendants(layout)
             if node.get("swallows")
         ]
 
-        self.assertEqual(4, len(placeholders))
+        self.assertEqual(3, len(placeholders))
 
     def test_common_applications_are_recognized_without_user_regexes(self):
         self.assertEqual(
