@@ -13,31 +13,30 @@ fi
 # Get current workspace info
 WORKSPACES_JSON=$(i3-msg -t get_workspaces)
 CURRENT_JSON=$(echo "$WORKSPACES_JSON" | jq -r '.[] | select(.focused == true)')
-CURRENT_NUM=$(echo "$CURRENT_JSON" | jq -r '.num // empty')
-CURRENT_OUTPUT=$(echo "$CURRENT_JSON" | jq -r '.output')
+CURRENT_NAME=$(echo "$CURRENT_JSON" | jq -r '.name // empty')
+CURRENT_OUTPUT=$(echo "$CURRENT_JSON" | jq -r '.output // empty')
 
-if [ -z "$CURRENT_NUM" ] || [ -z "$CURRENT_OUTPUT" ]; then
+if [ -z "$CURRENT_NAME" ] || [ -z "$CURRENT_OUTPUT" ]; then
     echo "Error: Could not get current workspace info"
     exit 1
 fi
 
-# Get all workspaces on current output sorted by number
-WORKSPACES_JSON=$(i3-msg -t get_workspaces)
-WORKSPACE_NUMS=$(echo "$WORKSPACES_JSON" | jq -r --arg output "$CURRENT_OUTPUT" '[.[] | select(.output == $output) | .num] | sort_by(.) | .[]' | grep -E '^[0-9]+$')
+# Keep i3's workspace order, but cycle by name: named workspaces have .num == -1.
+WORKSPACE_NAMES=$(echo "$WORKSPACES_JSON" | jq -r --arg output "$CURRENT_OUTPUT" '.[] | select(.output == $output) | .name')
 
-if [ -z "$WORKSPACE_NUMS" ]; then
+if [ -z "$WORKSPACE_NAMES" ]; then
     echo "Error: No workspaces found on output $CURRENT_OUTPUT"
     exit 1
 fi
 
 # Convert to array
-mapfile -t WS_ARRAY <<< "$WORKSPACE_NUMS"
+mapfile -t WS_ARRAY <<< "$WORKSPACE_NAMES"
 NUM_WS=${#WS_ARRAY[@]}
 
 # Find current workspace index
 CURRENT_IDX=-1
 for i in "${!WS_ARRAY[@]}"; do
-    if [ "${WS_ARRAY[$i]}" = "$CURRENT_NUM" ]; then
+    if [ "${WS_ARRAY[$i]}" = "$CURRENT_NAME" ]; then
         CURRENT_IDX=$i
         break
     fi
@@ -58,4 +57,5 @@ fi
 NEXT_WS="${WS_ARRAY[$NEXT_IDX]}"
 
 # Switch to the workspace
-i3-msg "workspace number $NEXT_WS"
+QUOTED_NEXT_WS=$(jq -Rrn --arg name "$NEXT_WS" '$name | @json')
+i3-msg "workspace $QUOTED_NEXT_WS"
