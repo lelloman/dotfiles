@@ -452,7 +452,38 @@ def project_workspace(config: dict[str, Any], value: str) -> dict[str, Any]:
     return workspace
 
 
-def setup_workspace(config: dict[str, Any], workspace: dict[str, Any], force_layout: bool = False) -> None:
+def focus_leftmost_window(workspace: str, expected_count: int, timeout: float = 5.0) -> None:
+    """Focus the leftmost window after asynchronous application launches settle."""
+    deadline = time.monotonic() + timeout
+    windows: list[dict[str, Any]] = []
+    while True:
+        tree = i3(message_type="get_tree")
+        node = workspace_node(tree, workspace)
+        windows = [
+            child
+            for child in descendants(node or {})
+            if child.get("window") is not None and child.get("id") is not None
+        ]
+        if len(windows) >= expected_count or time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    if windows:
+        leftmost = min(
+            windows,
+            key=lambda child: (
+                child.get("rect", {}).get("x", 0),
+                child.get("rect", {}).get("y", 0),
+            ),
+        )
+        i3(f'[con_id={leftmost["id"]}] focus')
+
+
+def setup_workspace(
+    config: dict[str, Any],
+    workspace: dict[str, Any],
+    force_layout: bool = False,
+    focus_leftmost: bool = False,
+) -> None:
     name = str(workspace["name"])
     print(f"Setting up workspace {name}...")
     i3(f'workspace "{escape_i3(name)}"')
@@ -485,6 +516,8 @@ def setup_workspace(config: dict[str, Any], workspace: dict[str, Any], force_lay
             print(f"  launching {app.get('name') or app['command']}")
             launch_app(app)
             time.sleep(0.25)
+    if focus_leftmost:
+        focus_leftmost_window(name, len(launched_apps))
 
 
 def setup_all(config: dict[str, Any]) -> None:
@@ -514,7 +547,7 @@ def reset_workspace(config: dict[str, Any], name: str | None = None) -> None:
         for child in node.get("nodes", []) + node.get("floating_nodes", []):
             i3(f'[con_id={child["id"]}] kill')
     time.sleep(0.3)
-    setup_workspace(config, workspace, force_layout=True)
+    setup_workspace(config, workspace, force_layout=True, focus_leftmost=True)
     print(f"Workspace {name} reset.")
 
 
@@ -1838,7 +1871,7 @@ def main() -> int:
             write_generated_i3_config(effective_config)
             setup_workspace(effective_config, find_workspace(effective_config, args.workspace))
         elif args.project:
-            setup_workspace(effective_config, project_workspace(config, args.project))
+            setup_workspace(effective_config, project_workspace(config, args.project), focus_leftmost=True)
         elif args.reset_current:
             reset_workspace(effective_config)
         elif args.reset:

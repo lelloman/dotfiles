@@ -132,6 +132,30 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
         self.assertNotIn("GNOME_TERMINAL_SERVICE", options["env"])
         self.assertIsNone(options["cwd"])
 
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_focus_leftmost_window_uses_window_geometry(self, i3):
+        i3.side_effect = [
+            {
+                "type": "root",
+                "nodes": [
+                    {
+                        "type": "workspace",
+                        "name": "project",
+                        "nodes": [
+                            {"id": 11, "window": 101, "rect": {"x": 960, "y": 0}},
+                            {"id": 12, "window": 102, "rect": {"x": 0, "y": 0}},
+                            {"id": 13, "window": 103, "rect": {"x": 960, "y": 540}},
+                        ],
+                    }
+                ],
+            },
+            "",
+        ]
+
+        workspace_configurator.focus_leftmost_window("project", 3)
+
+        i3.assert_called_with('[con_id=12] focus')
+
     def test_save_keeps_latest_twenty_backups(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
