@@ -15,15 +15,15 @@ secondary=""
 
 for output in "${outputs[@]}"; do
     case "$output" in
-        HDMI-A-1|HDMI-1) primary="$output" ;;
-        DP-1|DP-0) secondary="$output" ;;
+        DP-1|DP-0) primary="$output" ;;
+        HDMI-A-1|HDMI-1) secondary="$output" ;;
     esac
 done
 
 # Preserve the i3 setup's intent even if connector numbering changes.
 if [ -z "$primary" ]; then
     for output in "${outputs[@]}"; do
-        if [[ "$output" == HDMI-* ]]; then
+        if [[ "$output" == DP-* ]]; then
             primary="$output"
             break
         fi

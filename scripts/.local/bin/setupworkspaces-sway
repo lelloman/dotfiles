@@ -37,8 +37,8 @@ SECONDARY_WORKSPACES=(31 32 33 34 35)
 
 # Preferred output names. If they are not connected, the script falls back to
 # the first and second active outputs reported by Sway.
-PREFERRED_PRIMARY_OUTPUT="HDMI-A-1"
-PREFERRED_SECONDARY_OUTPUT="DP-1"
+PREFERRED_PRIMARY_OUTPUT="DP-1"
+PREFERRED_SECONDARY_OUTPUT="HDMI-A-1"
 
 # =============================================================================
 # MONITOR FUNCTIONS

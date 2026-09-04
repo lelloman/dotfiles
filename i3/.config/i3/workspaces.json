@@ -2,8 +2,8 @@
   "version": 1,
   "terminal": "gnome-terminal",
   "preferred_outputs": {
-    "primary": "HDMI-0",
-    "secondary": "DP-0"
+    "primary": "DP-0",
+    "secondary": "HDMI-0"
   },
   "startup_workspace": "1",
   "workspaces": [
