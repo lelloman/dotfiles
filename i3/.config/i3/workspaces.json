@@ -102,9 +102,6 @@
   "materializations": [
     { "template": "project-terminals", "workspace": "rns", "parameters": { "path": "/home/lelloman/lelloprojects/rns-rs" } },
     { "template": "project-terminals", "workspace": "crumbles", "parameters": { "path": "/home/lelloman/lelloprojects/crumbles" } },
-    { "template": "project-terminals", "workspace": "homelab", "parameters": { "path": "/home/lelloman/lelloprojects/homelab" } },
-    { "template": "project-terminals", "workspace": "lellostore", "parameters": { "path": "/home/lelloman/lelloprojects/lellostore" } },
-    { "template": "project-terminals", "workspace": "34", "parameters": { "path": "$HOME/lelloprojects" } },
-    { "template": "project-terminals", "workspace": "35", "parameters": { "path": "$HOME/lelloprojects" } }
+    { "template": "project-terminals", "workspace": "lellostore", "parameters": { "path": "/home/lelloman/lelloprojects/lellostore" } }
   ]
 }
