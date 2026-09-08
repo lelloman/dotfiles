@@ -34,7 +34,7 @@ APP_PRESETS = {
     "Chromium": {"name": "Chromium", "command": "chromium", "match_field": "class", "match": "^Chromium$", "launch": True, "assign": True},
     "VS Code": {"name": "Visual Studio Code", "command": "code", "match_field": "class", "match": "^Code$", "launch": False, "assign": True},
     "Android Studio": {"name": "Android Studio", "command": "studio", "match_field": "class", "match": "^jetbrains-studio$", "launch": False, "assign": True},
-    "Ronomepo": {"name": "Ronomepo", "command": "cargo run --release -- /home/lelloman/lelloprojects", "working_directory": "$HOME/lelloprojects/ronomepo", "match_field": "title", "match": "Ronomepo", "launch": True, "assign": False},
+    "Ronomepo": {"name": "Ronomepo", "command": "cargo run --release -- /home/lelloman/lelloprojects", "working_directory": "$HOME/lelloprojects/ronomepo", "match_field": "title", "match": "Ronomepo", "launch": True, "assign": False, "launch_timeout": 120},
 }
 
 
@@ -318,6 +318,24 @@ def count_matching_windows(tree: dict[str, Any], workspace: str, field: str, pat
     )
 
 
+def wait_for_matching_windows(
+    workspace: str,
+    field: str,
+    pattern: str,
+    expected_count: int,
+    timeout: float = 5.0,
+) -> bool:
+    """Wait until launched windows map on the workspace before moving away."""
+    deadline = time.monotonic() + timeout
+    while True:
+        tree = i3(message_type="get_tree")
+        if count_matching_windows(tree, workspace, field, pattern) >= expected_count:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
 def swallow_for(app: dict[str, Any]) -> dict[str, str]:
     return {str(app.get("match_field", "class")): str(app["match"])}
 
@@ -515,7 +533,11 @@ def setup_workspace(
         if current_counts[key] < desired_so_far[key]:
             print(f"  launching {app.get('name') or app['command']}")
             launch_app(app)
-            time.sleep(0.25)
+            timeout = float(app.get("launch_timeout", 5.0))
+            if wait_for_matching_windows(name, *key, desired_so_far[key], timeout=timeout):
+                current_counts[key] = desired_so_far[key]
+            else:
+                print(f"  warning: {app.get('name') or app['command']} did not appear within {timeout:g}s")
     if focus_leftmost:
         focus_leftmost_window(name, len(launched_apps))
 

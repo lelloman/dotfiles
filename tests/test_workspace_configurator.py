@@ -156,6 +156,33 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
 
         i3.assert_called_with('[con_id=12] focus')
 
+    @mock.patch.object(workspace_configurator.time, "sleep")
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_wait_for_matching_windows_waits_until_window_is_mapped(self, i3, sleep):
+        empty_tree = {"type": "root", "nodes": [{"type": "workspace", "name": "4", "nodes": []}]}
+        mapped_tree = {
+            "type": "root",
+            "nodes": [
+                {
+                    "type": "workspace",
+                    "name": "4",
+                    "nodes": [
+                        {
+                            "window": 101,
+                            "name": "Ronomepo",
+                            "window_properties": {"title": "Ronomepo"},
+                        }
+                    ],
+                }
+            ],
+        }
+        i3.side_effect = [empty_tree, mapped_tree]
+
+        appeared = workspace_configurator.wait_for_matching_windows("4", "title", "Ronomepo", 1)
+
+        self.assertTrue(appeared)
+        sleep.assert_called_once_with(0.05)
+
     def test_save_keeps_latest_twenty_backups(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

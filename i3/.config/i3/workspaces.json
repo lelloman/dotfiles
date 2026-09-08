@@ -49,7 +49,8 @@
           "match_field": "title",
           "match": "Ronomepo",
           "launch": true,
-          "assign": false
+          "assign": false,
+          "launch_timeout": 120
         }
       ]
     },
@@ -102,6 +103,6 @@
   "materializations": [
     { "template": "project-terminals", "workspace": "rns", "parameters": { "path": "/home/lelloman/lelloprojects/rns-rs" } },
     { "template": "project-terminals", "workspace": "crumbles", "parameters": { "path": "/home/lelloman/lelloprojects/crumbles" } },
-    { "template": "project-terminals", "workspace": "lellostore", "parameters": { "path": "/home/lelloman/lelloprojects/lellostore" } }
+    { "template": "project-terminals", "workspace": "meteonesto", "parameters": { "path": "/home/lelloman/lelloprojects/meteonesto" } }
   ]
 }
