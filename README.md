@@ -125,6 +125,8 @@ only in the running i3 session.
 The i3bar keeps the normal `i3status` information and adds clickable
 `+ project` and `reset` controls. The project control opens a `dmenu` folder
 picker, and reset shows a confirmation dialog before closing any windows.
+The same controls are available with `Mod+P` (project picker) and `Mod+R`
+(reset with confirmation). Use `Mod+Ctrl+R` to enter or leave resize mode.
 
 ---
 
