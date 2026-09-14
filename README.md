@@ -45,6 +45,11 @@ fi
 
 i3 window manager configuration.
 
+`Mod+Enter` opens a new window in the focused GNOME Terminal tab's current
+directory, using the same profile. From other applications it uses the normal
+`i3-sensible-terminal` launcher. This requires the `scripts` package, Python 3,
+`xprop`, and `gdbus`.
+
 **Stows to:** `~/.config/i3/`
 
 **Contents:**

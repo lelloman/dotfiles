@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Open a window using the focused GNOME Terminal tab's directory/profile."""
+
+import json
+import os
+import re
+import subprocess
+
+
+def focused_window(node):
+    if node.get("focused") and node.get("window"):
+        return node
+    for child in node.get("nodes", []) + node.get("floating_nodes", []):
+        focused = focused_window(child)
+        if focused:
+            return focused
+    return None
+
+
+def open_from_focused_terminal():
+    tree = json.loads(subprocess.check_output(["i3-msg", "-t", "get_tree"]))
+    focused = focused_window(tree)
+    if not focused or focused.get("window_properties", {}).get("class") != "Gnome-terminal":
+        return False
+    properties = subprocess.check_output(
+        ["xprop", "-id", str(focused["window"]),
+         "_GTK_UNIQUE_BUS_NAME", "_GTK_WINDOW_OBJECT_PATH"], text=True
+    )
+    values = dict(re.findall(r'^(_GTK_\w+)\([^\n]*?\) = "([^"\n]+)"$', properties, re.M))
+    # Activate the same action as GNOME Terminal's New Window command. The
+    # terminal resolves its active tab, even though all windows share one PID.
+    subprocess.run(
+        ["gdbus", "call", "--session", "--dest", values["_GTK_UNIQUE_BUS_NAME"],
+         "--object-path", values["_GTK_WINDOW_OBJECT_PATH"],
+         "--method", "org.gtk.Actions.Activate", "new-terminal",
+         "[<('window', 'current')>]", "{}"],
+        check=True, stdout=subprocess.DEVNULL,
+    )
+    return True
+
+
+def main():
+    try:
+        if open_from_focused_terminal():
+            return
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+        pass
+    os.execvp("i3-sensible-terminal", ["i3-sensible-terminal"])
+
+
+if __name__ == "__main__":
+    main()

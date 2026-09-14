@@ -47,8 +47,8 @@ bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOU
 # Use Mouse+$mod to drag floating windows to their wanted position
 floating_modifier $mod
 
-# start a terminal
-bindsym $mod+Return exec i3-sensible-terminal
+# Start a terminal, inheriting the focused GNOME Terminal tab's directory.
+bindsym $mod+Return exec --no-startup-id $HOME/.local/bin/i3-terminal
 
 # kill focused window
 bindsym $mod+Shift+q kill
