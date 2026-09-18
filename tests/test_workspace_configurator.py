@@ -22,6 +22,13 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
         config_path = Path(__file__).parents[1] / "i3/.config/i3/workspaces.json"
         cls.config = json.loads(config_path.read_text(encoding="utf-8"))
 
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        patcher = mock.patch.object(workspace_configurator, "SESSION_PATH", Path(self.directory.name) / "session.json")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_shipped_configuration_is_valid(self):
         workspace_configurator.validate_config(self.config)
 
@@ -41,14 +48,13 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
 
     def test_missing_template_parameter_is_rejected(self):
         broken = copy.deepcopy(self.config)
-        broken["materializations"][0]["parameters"] = {}
+        broken["materializations"] = [{"template": "project-terminals", "workspace": "rns", "parameters": {}}]
 
         with self.assertRaises(workspace_configurator.ConfigError):
             workspace_configurator.validate_config(broken)
 
     def test_layout_contains_one_placeholder_per_application(self):
-        expanded = workspace_configurator.materialize_config(self.config)
-        workspace = next(item for item in expanded["workspaces"] if item["name"] == "rns")
+        workspace = self.config["templates"][0]["workspace"]
         layout = workspace_configurator.build_layout(
             workspace["layout"], workspace["applications"], workspace["layout_tree"]
         )
@@ -198,6 +204,110 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
             self.assertEqual(20, len(backups))
             newest = json.loads(backups[-1].read_text(encoding="utf-8"))
             self.assertEqual("output-23", newest["preferred_outputs"]["primary"])
+
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_session_tracks_moves_and_removes_closed_projects(self, i3):
+        workspace_configurator.write_session([
+            {"name": "open", "path": "/projects/open", "output": "old"},
+            {"name": "closed", "path": "/projects/closed", "output": "old"},
+        ])
+        i3.return_value = [{"name": "open", "output": "new"}, {"name": "1", "output": "new"}]
+        workspace_configurator.snapshot_session()
+        self.assertEqual([{"name": "open", "path": "/projects/open", "output": "new"}],
+                         workspace_configurator.read_session())
+
+    @mock.patch.object(workspace_configurator, "setup_workspace")
+    @mock.patch.object(workspace_configurator, "active_outputs", return_value=["DP-0", "HDMI-0"])
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_restore_preserves_custom_name_folder_and_display(self, i3, outputs, setup):
+        workspace_configurator.write_session([
+            {"name": "custom-name", "path": self.directory.name, "output": "HDMI-0"},
+        ])
+        workspace_configurator.restore_projects(self.config)
+        i3.assert_called_once_with('workspace "custom-name"; move workspace to output "HDMI-0"')
+        workspace = setup.call_args.args[1]
+        self.assertEqual("custom-name", workspace["name"])
+        self.assertEqual([self.directory.name] * 3, [app["working_directory"] for app in workspace["applications"]])
+
+    @mock.patch.object(workspace_configurator, "setup_workspace")
+    @mock.patch.object(workspace_configurator, "active_outputs", return_value=["DP-0"])
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_restore_missing_display_and_missing_directory(self, i3, outputs, setup):
+        workspace_configurator.write_session([
+            {"name": "missing", "path": "/missing/project-directory", "output": "HDMI-0"},
+            {"name": "available", "path": self.directory.name, "output": "HDMI-0"},
+        ])
+        workspace_configurator.restore_projects(self.config)
+        i3.assert_called_once_with('workspace "available"; move workspace to output "DP-0"')
+        self.assertEqual(1, setup.call_count)
+
+    @mock.patch.object(workspace_configurator.time, "sleep")
+    @mock.patch.object(workspace_configurator, "setup_workspace")
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_reset_resolves_session_project(self, i3, setup, sleep):
+        project = {"name": "dynamic", "path": self.directory.name, "output": "HDMI-0"}
+        workspace_configurator.write_session([project])
+        i3.return_value = {"type": "root", "nodes": [{"type": "workspace", "name": "dynamic", "nodes": [{"id": 123}]}]}
+        workspace_configurator.reset_workspace(self.config, "dynamic")
+        i3.assert_any_call('[con_id=123] kill')
+        self.assertEqual("dynamic", setup.call_args.args[1]["name"])
+        self.assertTrue(setup.call_args.kwargs["force_layout"])
+        self.assertEqual([project], workspace_configurator.read_session())
+
+    def test_invalid_session_is_not_silently_overwritten(self):
+        workspace_configurator.SESSION_PATH.write_text('{broken')
+        with self.assertRaises(workspace_configurator.ConfigError):
+            workspace_configurator.read_session()
+        self.assertEqual('{broken', workspace_configurator.SESSION_PATH.read_text())
+
+    def test_only_browser_and_ronomepo_are_fixed(self):
+        self.assertEqual(["1", "4"], [item["name"] for item in self.config["workspaces"]])
+        self.assertEqual([], self.config["materializations"])
+
+    @mock.patch.object(workspace_configurator, "snapshot_session")
+    @mock.patch.object(workspace_configurator, "receive_ipc")
+    @mock.patch.object(workspace_configurator.select, "select", return_value=([True], [], []))
+    @mock.patch.object(workspace_configurator, "i3", return_value=[{"id": 7, "name": "old"}])
+    @mock.patch.object(workspace_configurator.socket, "socket")
+    @mock.patch.object(workspace_configurator.subprocess, "check_output", return_value="/tmp/i3")
+    def test_watcher_handles_rename_then_shutdown_without_empty_snapshot(self, command, socket, i3, select, receive, snapshot):
+        workspace_configurator.write_session([{"name": "old", "path": self.directory.name, "output": "DP-0"}])
+        receive.side_effect = [
+            (2, {"success": True}),
+            (1 << 31, {"change": "rename", "current": {"id": 7, "name": "renamed"}, "old": None}),
+            ((1 << 31) + 6, {"change": "exit"}),
+        ]
+        self.assertFalse(workspace_configurator.watch_session_connection())
+        self.assertEqual("renamed", workspace_configurator.read_session()[0]["name"])
+        snapshot.assert_not_called()
+
+    @mock.patch.object(workspace_configurator, "start_session_watcher")
+    @mock.patch.object(workspace_configurator, "write_generated_i3_config")
+    @mock.patch.object(workspace_configurator, "save_config")
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_migration_records_only_open_legacy_projects(self, i3, save, generated, watcher):
+        config = copy.deepcopy(self.config)
+        config["materializations"] = [
+            {"template": "project-terminals", "workspace": "open", "parameters": {"path": self.directory.name}},
+            {"template": "project-terminals", "workspace": "closed", "parameters": {"path": self.directory.name}},
+        ]
+        i3.side_effect = [{"type": "root"}, [{"name": "open", "output": "HDMI-0"}]]
+        workspace_configurator.enable_session(config)
+        self.assertEqual([{"name": "open", "path": self.directory.name, "output": "HDMI-0"}], workspace_configurator.read_session())
+        self.assertEqual([], save.call_args.args[0]["materializations"])
+        watcher.assert_called_once()
+
+    @mock.patch.object(workspace_configurator, "start_session_watcher")
+    @mock.patch.object(workspace_configurator, "write_generated_i3_config")
+    @mock.patch.object(workspace_configurator, "setup_workspace")
+    @mock.patch.object(workspace_configurator, "restore_projects")
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_setup_includes_restore_and_returns_to_browser(self, i3, restore, setup, generated, watcher):
+        workspace_configurator.setup_all(self.config)
+        self.assertEqual(["1", "4"], [call.args[1]["name"] for call in setup.call_args_list])
+        restore.assert_called_once_with(self.config)
+        i3.assert_called_once_with('workspace "1"')
+        watcher.assert_called_once()
 
 
 if __name__ == "__main__":

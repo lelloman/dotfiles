@@ -64,6 +64,24 @@ On login, i3 runs `~/.local/bin/i3-session-startup`, which calls `confmonitor`,
 waits briefly for the monitor layout to settle, then runs `setupworkspaces`.
 Startup output is written to `~/.local/state/i3-startup.log`.
 
+Only workspace **1 (Chromium)** and **4 (Ronomepo)** are fixed at startup.
+Project terminal workspaces are restored from the previous session, using their
+saved project folders, workspace names, and displays. A background watcher saves
+changes after about one second of inactivity, including display moves, renames,
+and workspace closures. Its state is stored in
+`~/.local/state/i3-workspace-config/session.json` (under `$XDG_STATE_HOME` if set).
+If a display is unavailable, projects use the available secondary/primary
+display. Missing project folders are skipped and reported in the startup log.
+Restoration creates the template's three fresh terminals; it does not resume
+running shell commands or recover terminal contents.
+
+To migrate an existing installation without reopening its windows, run
+`workspace-configurator --enable-session` once. This backs up the configuration,
+records open project workspaces, removes the old fixed project list and the
+workspace 2/5 application assignments, and starts the watcher. Existing project
+workspaces are recognized by their old template entries, or by three GNOME
+Terminal windows and a matching folder below `/home/lelloman/lelloprojects`.
+
 Workspace setup is stored in `~/.config/i3/workspaces.json`. Open the editor
 with:
 
@@ -111,12 +129,13 @@ resetworkspace
 ```
 
 This command intentionally closes all applications on that workspace. It
-refuses to act when the focused workspace is not configured. The detached
+refuses to act when the focused workspace is neither configured nor recorded
+as a session project. The detached
 reset worker logs to `~/.local/state/i3-workspace-reset.log`, since it also
 closes the terminal from which it was invoked.
 
-To create the same three-terminal layout without saving another workspace in
-the configuration, pass a project path to `projectworkspace`:
+To create a remembered three-terminal project workspace, pass a project path
+to `projectworkspace`:
 
 ```bash
 projectworkspace rns-rs
@@ -124,8 +143,9 @@ projectworkspace /tmp/another-project
 ```
 
 A relative path is resolved below `/home/lelloman/lelloprojects`; an absolute
-path is used directly. The workspace is named after the directory and exists
-only in the running i3 session.
+path is used directly. The workspace is named after the directory and is
+remembered for the next login. Close its windows and leave the empty workspace
+to remove it from the saved session. `reset` also works for session projects.
 
 The i3bar keeps the normal `i3status` information and adds clickable
 `+ project` and `reset` controls. The project control opens a `dmenu` folder

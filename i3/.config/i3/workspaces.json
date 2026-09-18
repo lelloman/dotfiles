@@ -23,21 +23,6 @@
       ]
     },
     {
-      "name": "2",
-      "output": "primary",
-      "layout": "none",
-      "applications": [
-        {
-          "name": "Visual Studio Code",
-          "command": "code",
-          "match_field": "class",
-          "match": "^Code$",
-          "launch": false,
-          "assign": true
-        }
-      ]
-    },
-    {
       "name": "4",
       "output": "primary",
       "layout": "none",
@@ -53,27 +38,14 @@
           "launch_timeout": 120
         }
       ]
-    },
-    {
-      "name": "5",
-      "output": "primary",
-      "layout": "none",
-      "applications": [
-        {
-          "name": "Android Studio",
-          "command": "studio",
-          "match_field": "class",
-          "match": "^jetbrains-studio$",
-          "launch": false,
-          "assign": true
-        }
-      ]
     }
   ],
   "templates": [
     {
       "name": "project-terminals",
-      "parameters": ["path"],
+      "parameters": [
+        "path"
+      ],
       "workspace": {
         "output": "secondary",
         "layout": "custom",
@@ -81,28 +53,54 @@
           "type": "split",
           "orientation": "horizontal",
           "children": [
-            { "type": "app" },
+            {
+              "type": "app"
+            },
             {
               "type": "split",
               "orientation": "vertical",
               "children": [
-                { "type": "app" },
-                { "type": "app" }
+                {
+                  "type": "app"
+                },
+                {
+                  "type": "app"
+                }
               ]
             }
           ]
         },
         "applications": [
-          { "name": "Terminal 1", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false },
-          { "name": "Terminal 2", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false },
-          { "name": "Terminal 3", "command": "gnome-terminal", "working_directory": "{{path}}", "match_field": "class", "match": "^Gnome-terminal$", "launch": true, "assign": false }
+          {
+            "name": "Terminal 1",
+            "command": "gnome-terminal",
+            "working_directory": "{{path}}",
+            "match_field": "class",
+            "match": "^Gnome-terminal$",
+            "launch": true,
+            "assign": false
+          },
+          {
+            "name": "Terminal 2",
+            "command": "gnome-terminal",
+            "working_directory": "{{path}}",
+            "match_field": "class",
+            "match": "^Gnome-terminal$",
+            "launch": true,
+            "assign": false
+          },
+          {
+            "name": "Terminal 3",
+            "command": "gnome-terminal",
+            "working_directory": "{{path}}",
+            "match_field": "class",
+            "match": "^Gnome-terminal$",
+            "launch": true,
+            "assign": false
+          }
         ]
       }
     }
   ],
-  "materializations": [
-    { "template": "project-terminals", "workspace": "rns", "parameters": { "path": "/home/lelloman/lelloprojects/rns-rs" } },
-    { "template": "project-terminals", "workspace": "crumbles", "parameters": { "path": "/home/lelloman/lelloprojects/crumbles" } },
-    { "template": "project-terminals", "workspace": "meteonesto", "parameters": { "path": "/home/lelloman/lelloprojects/meteonesto" } }
-  ]
+  "materializations": []
 }
