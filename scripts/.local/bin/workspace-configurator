@@ -728,12 +728,31 @@ def reset_workspace_locked(config: dict[str, Any], name: str | None = None) -> N
     workspace = find_workspace(config, name)
     tree = i3(message_type="get_tree")
     node = workspace_node(tree, name)
+    closing_windows = {
+        child["window"] for child in descendants(node or {})
+        if child.get("window") is not None
+    }
     if node:
         # Killing the workspace's top-level containers also removes stale
         # append_layout placeholders, so the recreated layout is predictable.
         for child in node.get("nodes", []) + node.get("floating_nodes", []):
             i3(f'[con_id={child["id"]}] kill')
-    time.sleep(0.3)
+    # i3's kill requests are asynchronous. Do not let setup count a window
+    # that is still shutting down as an application that needs no relaunch.
+    deadline = time.monotonic() + 30.0
+    while closing_windows:
+        tree = i3(message_type="get_tree")
+        closing_windows.intersection_update(
+            child.get("window") for child in descendants(tree)
+        )
+        if not closing_windows:
+            break
+        if time.monotonic() >= deadline:
+            raise ConfigError(
+                f"Workspace {name!r} reset stopped: windows did not close within 30s. "
+                "Resolve any application close dialogs and retry."
+            )
+        time.sleep(0.05)
     setup_workspace(config, workspace, force_layout=True, focus_leftmost=True)
     print(f"Workspace {name} reset.")
 

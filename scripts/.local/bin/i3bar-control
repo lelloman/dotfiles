@@ -13,7 +13,10 @@ case "${1:-}" in
         zenity --question \
             --title='Reset workspace' \
             --text="Close every window on workspace '$workspace' and recreate it?" || exit 0
-        exec "$HOME/.local/bin/workspace-configurator" --reset "$workspace"
+        state_dir="${XDG_STATE_HOME:-$HOME/.local/state}"
+        mkdir -p "$state_dir" || exit 1
+        exec "$HOME/.local/bin/workspace-configurator" --reset "$workspace" \
+            >>"$state_dir/i3-workspace-reset.log" 2>&1
         ;;
     *)
         echo "Usage: i3bar-control {project|reset}" >&2

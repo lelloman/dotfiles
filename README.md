@@ -133,6 +133,9 @@ refuses to act when the focused workspace is neither configured nor recorded
 as a session project. The detached
 reset worker logs to `~/.local/state/i3-workspace-reset.log`, since it also
 closes the terminal from which it was invoked.
+Reset waits up to 30 seconds for the old windows to close before recreating
+the workspace. If an application refuses to close, reset stops; resolve any
+close dialogs and retry. Resets from the bar also write to the same log.
 
 To create a remembered three-terminal project workspace, pass a project path
 to `projectworkspace`:

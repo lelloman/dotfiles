@@ -260,6 +260,49 @@ class WorkspaceConfiguratorTest(unittest.TestCase):
             workspace_configurator.read_session()
         self.assertEqual('{broken', workspace_configurator.SESSION_PATH.read_text())
 
+    @mock.patch.object(workspace_configurator, "focus_leftmost_window")
+    @mock.patch.object(workspace_configurator, "wait_for_matching_windows", return_value=True)
+    @mock.patch.object(workspace_configurator, "launch_app")
+    @mock.patch.object(workspace_configurator.time, "sleep")
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_reset_relaunches_after_delayed_window_close(self, i3, sleep, launch, wait, focus):
+        for collection in ("nodes", "floating_nodes"):
+            with self.subTest(collection=collection):
+                i3.reset_mock()
+                sleep.reset_mock()
+                launch.reset_mock()
+                closing = {"type": "workspace", "name": "4", collection: [
+                    {"id": 123, "nodes": [
+                        {"id": 124, "window": 101, "name": "Ronomepo"},
+                    ]},
+                ]}
+                empty = {"type": "root", "nodes": []}
+                # The old window outlives the previous fixed 0.3s delay.
+                snapshots = iter([closing] * 11 + [empty, empty])
+
+                def ipc(command=None, message_type=None):
+                    return next(snapshots) if message_type == "get_tree" else []
+
+                i3.side_effect = ipc
+                workspace_configurator.reset_workspace(self.config, "4")
+
+                i3.assert_any_call('[con_id=123] kill')
+                self.assertEqual(10, sleep.call_count)
+                launch.assert_called_once_with(self.config["workspaces"][1]["applications"][0])
+
+    @mock.patch.object(workspace_configurator, "setup_workspace")
+    @mock.patch.object(workspace_configurator.time, "monotonic", side_effect=[0, 31])
+    @mock.patch.object(workspace_configurator, "i3")
+    def test_reset_does_not_rebuild_when_window_refuses_to_close(self, i3, monotonic, setup):
+        i3.return_value = {"type": "workspace", "name": "4", "nodes": [
+            {"id": 123, "window": 101, "name": "Ronomepo"},
+        ]}
+
+        with self.assertRaisesRegex(workspace_configurator.ConfigError, "did not close within 30s"):
+            workspace_configurator.reset_workspace(self.config, "4")
+
+        setup.assert_not_called()
+
     def test_only_browser_and_ronomepo_are_fixed(self):
         self.assertEqual(["1", "4"], [item["name"] for item in self.config["workspaces"]])
         self.assertEqual([], self.config["materializations"])
