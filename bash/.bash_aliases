@@ -11,3 +11,12 @@ alias pezzotticlaude='echo -ne "\033]11;#2d1b4e\007"; CLAUDE_CONFIG_DIR=~/.pezzo
 
 # Mono completion
 eval "$(/home/lelloman/lelloprojects/mono completions)"
+
+# Codex notifications mark the terminal's i3 workspace urgent.
+codex() {
+    if [ -x "$HOME/.local/bin/codex-i3" ]; then
+        "$HOME/.local/bin/codex-i3" "$@"
+    else
+        command codex "$@"
+    fi
+}

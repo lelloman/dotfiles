@@ -30,6 +30,7 @@ Shell configuration and aliases.
 **Contents:**
 - History settings (10000 lines)
 - Git log alias (`gitpl`)
+- `codex` function using the notification bridge when the `scripts` package is installed
 - `pezzotticlaude` alias for Claude Code with alternative API
 
 **Requires:** Your `~/.bashrc` must source `~/.bash_aliases`:
@@ -158,6 +159,30 @@ The same controls are available with `Mod+P` (project picker) and `Mod+R`
 
 ---
 
+### Codex workspace notifications
+
+Stow both `bash` and `scripts` to make new `codex` sessions mark their i3
+workspace red when Codex emits a notification while unfocused. This includes
+turn completion and approval notifications; all TUI notification types are
+enabled. Focusing the requesting terminal clears i3's urgency hint. Switching
+to its workspace normally focuses that terminal; with multiple windows you may
+need to focus the requesting terminal explicitly.
+
+The `codex-i3` launcher requires Python 3, `xdotool`, Codex on `PATH`, and an X11
+session. It relays Codex through a pseudo-terminal and converts notification
+bells to window urgency, excluding bells that terminate terminal title updates.
+It uses `WINDOWID` when available, otherwise the active window at launch, so
+start it from the focused terminal. Resizing and the child exit status are
+forwarded. Non-terminal invocations and sessions without `DISPLAY` run Codex
+directly. This integration targets i3/X11, not native Wayland windows.
+
+Notification settings are passed by the launcher; no personal Codex config is
+tracked or required. Use `command codex` to bypass the launcher. After stowing,
+open a new terminal or run `source ~/.bash_aliases`, then restart any existing
+Codex sessions. The normal i3bar urgent-workspace colour is already red.
+
+---
+
 ### sway and waybar
 
 Wayland equivalents of the i3 and i3bar/i3status setup.
@@ -267,6 +292,7 @@ Custom scripts.
 **Stows to:** `~/.local/bin/`
 
 **Contents:**
+- `codex-i3` - bridge Codex terminal notifications to i3 workspace urgency
 - `confmonitor` - monitor layout setup script
 - `i3-session-startup` - ordered i3 startup script
 - `setupworkspaces` - i3 workspace setup script
