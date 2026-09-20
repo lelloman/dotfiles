@@ -157,6 +157,12 @@ picker, and reset shows a confirmation dialog before closing any windows.
 The same controls are available with `Mod+P` (project picker) and `Mod+R`
 (reset with confirmation). Use `Mod+Ctrl+R` to enter or leave resize mode.
 
+The volume control shows `− 🔊 50% +`. Click **− / +** or scroll over the
+control to adjust the default audio output by 5%. Click the speaker to toggle
+mute. It requires `pactl` (`pulseaudio-utils`, also compatible with PipeWire's
+PulseAudio service). Changes refresh immediately; external changes appear on
+the next status update.
+
 ---
 
 ### Codex workspace notifications

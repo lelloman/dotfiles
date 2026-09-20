@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Add clickable workspace controls to an i3status stream."""
+"""Add clickable workspace and volume controls to an i3status stream."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -19,12 +20,49 @@ CONTROL_BLOCKS = [
 CONTROL_NAMES = {block["name"] for block in CONTROL_BLOCKS}
 
 
+def pactl(*args: str) -> str:
+    return subprocess.check_output(
+        ["pactl", *args], text=True, stderr=subprocess.DEVNULL,
+        env={**os.environ, "LC_ALL": "C"}, timeout=2,
+    )
+
+
+def volume_blocks() -> list[dict[str, Any]]:
+    try:
+        volume = re.search(r"(\d+)%", pactl("get-sink-volume", "@DEFAULT_SINK@"))
+        if volume is None:
+            raise ValueError("No volume reported")
+        muted = pactl("get-sink-mute", "@DEFAULT_SINK@").strip() == "Mute: yes"
+        label = "🔇 muted" if muted else f"🔊 {volume.group(1)}%"
+        color = "#fabd2f" if muted else "#8ec07c"
+    except (OSError, subprocess.SubprocessError, ValueError):
+        label, color = "🔊 unavailable", "#928374"
+    return [
+        {"name": "volume_down", "full_text": "−", "separator": False},
+        {"name": "volume", "full_text": label, "color": color, "separator": False},
+        {"name": "volume_up", "full_text": "+"},
+    ]
+
+
+def volume_action(event: dict[str, Any]) -> list[str] | None:
+    name, button = event.get("name"), event.get("button")
+    if name not in ("volume", "volume_down", "volume_up"):
+        return None
+    if button == 4 or (name == "volume_up" and button == 1):
+        return ["set-sink-volume", "@DEFAULT_SINK@", "+5%"]
+    if button == 5 or (name == "volume_down" and button == 1):
+        return ["set-sink-volume", "@DEFAULT_SINK@", "-5%"]
+    if name == "volume" and button == 1:
+        return ["set-sink-mute", "@DEFAULT_SINK@", "toggle"]
+    return None
+
+
 def augment_update(line: str) -> str:
     stripped = line.strip()
     prefix = "," if stripped.startswith(",") else ""
     payload = stripped[1:] if prefix else stripped
     blocks = json.loads(payload)
-    return prefix + json.dumps(CONTROL_BLOCKS + blocks, separators=(",", ":"))
+    return prefix + json.dumps(CONTROL_BLOCKS + volume_blocks() + blocks, separators=(",", ":"))
 
 
 def click_name(line: str) -> str | None:
@@ -38,12 +76,23 @@ def click_name(line: str) -> str | None:
     return None
 
 
-def handle_clicks() -> None:
+def handle_clicks(status: subprocess.Popen) -> None:
     control = os.path.expanduser("~/.local/bin/i3bar-control")
     for line in sys.stdin:
         try:
+            payload = line.strip().lstrip(",")
+            if not payload or payload in ("[", "]"):
+                continue
+            event = json.loads(payload)
+            if not isinstance(event, dict):
+                continue
+            action = volume_action(event)
+            if action:
+                pactl(*action)
+                status.send_signal(signal.SIGUSR1)
+                continue
             name = click_name(line)
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError, OSError, subprocess.SubprocessError):
             continue
         if name:
             subprocess.Popen(
@@ -69,7 +118,6 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    threading.Thread(target=handle_clicks, daemon=True).start()
 
     assert status.stdout is not None
     first_line = status.stdout.readline()
@@ -79,6 +127,7 @@ def main() -> int:
     header["click_events"] = True
     print(json.dumps(header, separators=(",", ":")), flush=True)
     print(status.stdout.readline().strip(), flush=True)
+    threading.Thread(target=handle_clicks, args=(status,), daemon=True).start()
 
     try:
         for line in status.stdout:
