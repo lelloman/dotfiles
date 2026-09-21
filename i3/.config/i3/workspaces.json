@@ -29,7 +29,7 @@
       "applications": [
         {
           "name": "Ronomepo",
-          "command": "cargo run --release -- /home/lelloman/lelloprojects",
+          "command": "$HOME/.cargo/bin/ronomepo-app /home/lelloman/lelloprojects",
           "working_directory": "$HOME/lelloprojects/ronomepo",
           "match_field": "title",
           "match": "Ronomepo",

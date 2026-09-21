@@ -22,7 +22,7 @@ TERM_PATH_TOP_RIGHT="$HOME/lelloprojects"
 TERM_PATH_BOTTOM_LEFT="$HOME/lelloprojects"
 TERM_PATH_BOTTOM_RIGHT="$HOME/lelloprojects"
 RONOMEPO_PATH="$HOME/lelloprojects/ronomepo"
-RONOMEPO_COMMAND=(cargo run --release -- /home/lelloman/lelloprojects)
+RONOMEPO_COMMAND=("$HOME/.cargo/bin/ronomepo-app" /home/lelloman/lelloprojects)
 
 GRID_WORKSPACES=(31 32 33 34 35)
 SPECIAL_WORKSPACE=4

@@ -40,7 +40,7 @@ APP_PRESETS = {
     "Chromium": {"name": "Chromium", "command": "chromium", "match_field": "class", "match": "^Chromium$", "launch": True, "assign": True},
     "VS Code": {"name": "Visual Studio Code", "command": "code", "match_field": "class", "match": "^Code$", "launch": False, "assign": True},
     "Android Studio": {"name": "Android Studio", "command": "studio", "match_field": "class", "match": "^jetbrains-studio$", "launch": False, "assign": True},
-    "Ronomepo": {"name": "Ronomepo", "command": "cargo run --release -- /home/lelloman/lelloprojects", "working_directory": "$HOME/lelloprojects/ronomepo", "match_field": "title", "match": "Ronomepo", "launch": True, "assign": False, "launch_timeout": 120},
+    "Ronomepo": {"name": "Ronomepo", "command": "$HOME/.cargo/bin/ronomepo-app /home/lelloman/lelloprojects", "working_directory": "$HOME/lelloprojects/ronomepo", "match_field": "title", "match": "Ronomepo", "launch": True, "assign": False, "launch_timeout": 120},
 }
 
 
@@ -1052,7 +1052,7 @@ def run_gui(config: dict[str, Any]) -> None:
                 elif preset == "Android Studio":
                     applications = [{"name": "Android Studio", "command": "studio", "match_field": "class", "match": "^jetbrains-studio$", "launch": False, "assign": True}]
                 elif preset == "Ronomepo":
-                    applications = [{"name": "Ronomepo", "command": "cargo run --release -- /home/lelloman/lelloprojects", "working_directory": directory_var.get().strip(), "match_field": "title", "match": "Ronomepo", "launch": True, "assign": False}]
+                    applications = [{"name": "Ronomepo", "command": "$HOME/.cargo/bin/ronomepo-app /home/lelloman/lelloprojects", "working_directory": directory_var.get().strip(), "match_field": "title", "match": "Ronomepo", "launch": True, "assign": False}]
                 self.data["workspaces"].append({"name": name, "output": output_var.get(), "layout": "none", "applications": applications})
                 self._mark_dirty()
                 dialog.destroy()
