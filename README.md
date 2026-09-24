@@ -16,7 +16,7 @@ Clone the repo and stow the packages you want:
 cd ~
 git clone <repo-url> dotfiles
 cd dotfiles
-stow bash claude i3 sway waybar scripts vim pezzotticlaude  # or just the ones you need
+stow bash claude i3 sway waybar scripts opencode vim pezzotticlaude  # or just the ones you need
 ```
 
 ## Packages
@@ -31,6 +31,7 @@ Shell configuration and aliases.
 - History settings (10000 lines)
 - Git log alias (`gitpl`)
 - `codex` function using the notification bridge when the `scripts` package is installed
+- `opencode` function using the i3 urgency bridge when `scripts` and `opencode` are installed
 - `pezzotticlaude` alias for Claude Code with alternative API
 
 **Requires:** Your `~/.bashrc` must source `~/.bash_aliases`:
@@ -187,6 +188,17 @@ tracked or required. Use `command codex` to bypass the launcher. After stowing,
 open a new terminal or run `source ~/.bash_aliases`, then restart any existing
 Codex sessions. The normal i3bar urgent-workspace colour is already red.
 
+OpenCode uses the same i3 urgency hint. Stow `bash`, `scripts`, and `opencode`,
+then open a new terminal or run `source ~/.bash_aliases`. The `opencode-i3`
+launcher captures the focused terminal window and passes its ID to a global
+OpenCode plugin. When a session finishes or errors, or a permission or question
+needs an answer, the plugin marks the terminal urgent if it is unfocused.
+Focusing the terminal clears the hint; exiting the launcher also clears it.
+The launcher requires `xdotool`, OpenCode on `PATH`, and an i3/X11 session.
+Non-terminal invocations and sessions without `DISPLAY` run OpenCode directly.
+Use `command opencode` to bypass the launcher. Restart existing OpenCode
+sessions after installation.
+
 ---
 
 ### sway and waybar
@@ -280,6 +292,17 @@ claude          # runs normal Claude Code
 
 ---
 
+### opencode
+
+Global OpenCode plugin for i3 workspace urgency.
+
+**Stows to:** `~/.config/opencode/plugins/i3-urgency.js`
+
+Use with the `bash` and `scripts` packages as described above. Existing
+`~/.config/opencode/opencode.jsonc` and package files can stay in place.
+
+---
+
 ### vim
 
 Vim configuration.
@@ -299,6 +322,7 @@ Custom scripts.
 
 **Contents:**
 - `codex-i3` - bridge Codex terminal notifications to i3 workspace urgency
+- `opencode-i3` - pass the terminal window to OpenCode's i3 urgency plugin
 - `confmonitor` - monitor layout setup script
 - `i3-session-startup` - ordered i3 startup script
 - `setupworkspaces` - i3 workspace setup script

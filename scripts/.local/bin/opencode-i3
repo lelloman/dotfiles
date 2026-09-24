@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Run OpenCode with its terminal window ID available to the i3 urgency plugin.
+set -u
+
+if [[ ! -t 0 || ! -t 1 || -z ${DISPLAY:-} ]]; then
+    exec opencode "$@"
+fi
+
+window=$(xdotool getactivewindow 2>/dev/null) || exec opencode "$@"
+[[ $window =~ ^[0-9]+$ ]] || exec opencode "$@"
+
+export OPENCODE_I3_WINDOWID=$window
+trap 'xdotool set_window --urgency 0 "$OPENCODE_I3_WINDOWID" >/dev/null 2>&1 || true' EXIT
+opencode "$@"

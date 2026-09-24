@@ -20,3 +20,12 @@ codex() {
         command codex "$@"
     fi
 }
+
+# OpenCode events mark the terminal's i3 workspace urgent.
+opencode() {
+    if [ -x "$HOME/.local/bin/opencode-i3" ]; then
+        "$HOME/.local/bin/opencode-i3" "$@"
+    else
+        command opencode "$@"
+    fi
+}
