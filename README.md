@@ -199,6 +199,14 @@ Non-terminal invocations and sessions without `DISPLAY` run OpenCode directly.
 Use `command opencode` to bypass the launcher. Restart existing OpenCode
 sessions after installation.
 
+Claude Code needs no launcher. The `claude` package's `settings.json` runs
+`~/.claude/bell.sh` from `Notification` hooks (permission prompts, questions,
+idle input reminders) and `Stop` hooks (turn finished). The script writes a
+bell to the controlling terminal of the Claude process, and the terminal turns
+it into the i3 urgency hint. Merge the `hooks` block into an existing
+`~/.claude/settings.json` if it is not symlinked, then restart Claude Code or
+open `/hooks` to reload.
+
 ---
 
 ### sway and waybar
@@ -244,13 +252,15 @@ Claude Code configuration.
 **Stows to:** `~/.claude/`
 
 **Contents:**
-- `settings.json` - statusline and plugins config
+- `settings.json` - statusline config and notification hooks
 - `statusline.sh` - custom statusline script
+- `bell.sh` - rings the terminal bell for the i3 urgency hint
 - `commands/` - custom slash commands
 
 **Note:** Stow cannot symlink files into existing directories. After running `stow claude`, manually create symlinks:
 ```bash
 ln -sf ~/dotfiles/claude/.claude/statusline.sh ~/.claude/statusline.sh
+ln -sf ~/dotfiles/claude/.claude/bell.sh ~/.claude/bell.sh
 ln -sfn ~/dotfiles/claude/.claude/commands ~/.claude/commands
 ```
 
