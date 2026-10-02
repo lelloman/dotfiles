@@ -21,6 +21,56 @@ stow bash claude i3 sway waybar scripts opencode vim pezzotticlaude  # or just t
 
 ## Packages
 
+### Git commit-message hooks
+
+The shared hook is versioned in `~/lelloprojects/hooks/commit-msg`, in the
+parent `lelloprojects` repository. It rejects AI attribution trailers such as
+`Generated:`, `Generated-by:`, `Generated with Claude`, `AI generated`, and
+`Co-Authored-By:` while allowing ordinary subjects about AI features.
+
+Enable it for existing and future repositories with an absolute global path:
+
+```bash
+chmod +x "$HOME/lelloprojects/hooks/commit-msg"
+git config --global core.hooksPath "$HOME/lelloprojects/hooks"
+```
+
+This updates only the hook setting and preserves other personal Git settings.
+Repositories created with `git init` or `git clone` inherit it automatically.
+The shared hooks directory must remain present on each machine.
+
+A repository-local or worktree setting overrides the global setting. Check the
+active setting and the actual commit-message hook from inside a repository:
+
+```bash
+git config --show-origin --get core.hooksPath
+git rev-parse --path-format=absolute --git-path hooks/commit-msg
+```
+
+Remove obsolete local overrides, including the broken `../../hooks` setting,
+so the repository inherits the global hook:
+
+```bash
+git config --local --unset-all core.hooksPath
+```
+
+For repositories with their own checks, retain their hook directory and add a
+`commit-msg` symlink to the shared hook. For example, from the repository root:
+
+```bash
+ln -s "$HOME/lelloprojects/hooks/commit-msg" .githooks/commit-msg
+```
+
+If a `commit-msg` hook already exists, have it invoke the shared hook and
+propagate failures instead of replacing it. Setting `core.hooksPath` also
+changes where Git finds other hooks, so preserve any existing project checks.
+The `amperino` and `projectino` repositories use this symlink arrangement.
+
+Client hooks can be bypassed with `--no-verify` or a configuration override.
+Mandatory enforcement requires the same validation in CI or a server hook.
+
+---
+
 ### bash
 
 Shell configuration and aliases.
